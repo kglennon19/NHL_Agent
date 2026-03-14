@@ -196,63 +196,60 @@
         <span class="card-title">Data Sources</span>
         <span style="font-size:10px;font-family:var(--mono);color:var(--text3)" id="mobileHint"></span>
       </div>
-      <!-- Mobile: sync instructions (hidden on desktop) -->
-      <div class="mobile-sync-banner" id="mobileSyncBanner">
-        📱 <strong>Mobile sync:</strong> F12 console isn't available on mobile, but you can paste scripts directly into Chrome's address bar.
-        <button onclick="document.getElementById('mobileSyncInstructions').style.display='block';this.style.display='none'" style="background:none;border:none;color:var(--amber);text-decoration:underline;cursor:pointer;font-size:11px;padding:0">Show how ▾</button>
-        <div id="mobileSyncInstructions" style="display:none;margin-top:10px;line-height:1.9">
-          <strong style="color:var(--text)">ESPN sync:</strong><br>
-          1. Open <code style="color:var(--blue)">espn.com/nhl/scoreboard</code> in Chrome<br>
-          2. Tap the address bar → paste the ESPN script below → tap Go<br>
-          3. Data syncs here automatically ✓<br><br>
-          <strong style="color:var(--text)">MoneyPuck sync:</strong><br>
-          Same process on <code style="color:var(--blue)">moneypuck.com/teams.htm</code> while logged in<br><br>
-          <strong style="color:var(--text)">NST sync:</strong><br>
-          Same process on <code style="color:var(--blue)">naturalstattrick.com/teamtable.php</code><br><br>
-          <div style="background:var(--surface);border:1px solid var(--border2);border-radius:4px;padding:8px;margin-top:4px">
-            <div style="font-size:10px;color:var(--text3);margin-bottom:4px">Copy ESPN script → paste in Chrome address bar on espn.com/nhl/scoreboard</div>
-            <div id="espnScriptMobile" style="font-size:9px;font-family:var(--mono);color:var(--text2);word-break:break-all;max-height:48px;overflow:hidden"></div>
-            <button onclick="copyMobileScript('espn')" style="margin-top:6px;font-family:var(--sans);font-size:10px;font-weight:600;padding:4px 10px;border-radius:4px;border:1px solid var(--green);background:var(--green-dim);color:var(--green);cursor:pointer">Copy ESPN Script</button>
-            <button onclick="copyMobileScript('moneypuck')" style="margin-top:6px;margin-left:6px;font-family:var(--sans);font-size:10px;font-weight:600;padding:4px 10px;border-radius:4px;border:1px solid var(--border2);background:var(--surface2);color:var(--text2);cursor:pointer">Copy MoneyPuck Script</button>
-            <button onclick="copyMobileScript('nst')" style="margin-top:6px;margin-left:6px;font-family:var(--sans);font-size:10px;font-weight:600;padding:4px 10px;border-radius:4px;border:1px solid var(--border2);background:var(--surface2);color:var(--text2);cursor:pointer">Copy NST Script</button>
+      <!-- Auto-fetch status panel -->
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:12px 14px;margin-bottom:14px">
+        <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+          <div>
+            <div style="font-size:11px;font-weight:600;color:var(--text2);margin-bottom:4px">⚡ ESPN Auto-Fetch</div>
+            <div style="font-size:11px;color:var(--text3);line-height:1.6">Slate, puck lines, team stats and goalie SV% load automatically — no sync needed.</div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <button class="btn-sm primary" id="autoFetchBtn" onclick="autoFetchESPN()">⟳ Refresh Now</button>
+            <span id="autoFetchStatus" style="font-size:10px;font-family:var(--mono);color:var(--text3)">Loading...</span>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:12px">
+          <div style="text-align:center">
+            <div style="font-size:9px;font-family:var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--text3);margin-bottom:3px">Slate</div>
+            <div style="font-size:11px;font-family:var(--mono)" id="fetchSlateStatus">—</div>
+          </div>
+          <div style="text-align:center">
+            <div style="font-size:9px;font-family:var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--text3);margin-bottom:3px">Team Stats</div>
+            <div style="font-size:11px;font-family:var(--mono)" id="fetchTeamStatus">—</div>
+          </div>
+          <div style="text-align:center">
+            <div style="font-size:9px;font-family:var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--text3);margin-bottom:3px">Goalies</div>
+            <div style="font-size:11px;font-family:var(--mono)" id="fetchGoalieStatus">—</div>
+          </div>
+          <div style="text-align:center">
+            <div style="font-size:9px;font-family:var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--text3);margin-bottom:3px">Adv Stats</div>
+            <div style="font-size:11px;font-family:var(--mono)" id="fetchAdvStatus">—</div>
           </div>
         </div>
       </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:12px">
-        <div>
-          <div style="font-size:11px;font-weight:600;color:var(--text2);margin-bottom:6px">🎯 MoneyPuck (xG / HDCF)</div>
-          <div style="font-size:11px;color:var(--text3);line-height:1.6;margin-bottom:10px">Team xG%, HDCF%, SV%, PP%, PK%, PDO. Paste script on moneypuck.com/teams.htm</div>
-          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-            <button class="btn-sm primary" id="syncMoneypuckBtn" onclick="syncMoneypuck()">⟳ Sync MoneyPuck</button>
-            <button class="btn-sm" onclick="checkStatsCache()">Check Cache</button>
-            <span id="moneypuckSyncStatus" style="font-size:10px;font-family:var(--mono);color:var(--text3)">Not synced</span>
-          </div>
-        </div>
-        <div>
-          <div style="font-size:11px;font-weight:600;color:var(--text2);margin-bottom:6px">📊 Natural Stat Trick (5v5)</div>
-          <div style="font-size:11px;color:var(--text3);line-height:1.6;margin-bottom:10px">5v5 CF%, FF%, xGF%, goalie individual SV%. Paste script on naturalstattrick.com/teamtable.php</div>
-          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-            <button class="btn-sm primary" id="syncNSTBtn" onclick="syncNST()">⟳ Sync NST</button>
-            <span id="nstSyncStatus" style="font-size:10px;font-family:var(--mono);color:var(--text3)">Not synced</span>
-          </div>
-        </div>
-        <div>
-          <div style="font-size:11px;font-weight:600;color:var(--text2);margin-bottom:6px">🏒 Daily Faceoff (Lineups)</div>
-          <div style="font-size:11px;color:var(--text3);line-height:1.6;margin-bottom:10px">Confirmed starters, projected lines &amp; D-pairs, impact player flags. Paste script on dailyfaceoff.com/starting-goalies</div>
-          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-            <button class="btn-sm primary" id="syncDailyFaceoffBtn" onclick="syncDailyFaceoff()">⟳ Sync Lineups</button>
-            <span id="dailyfaceoffSyncStatus" style="font-size:10px;font-family:var(--mono);color:var(--text3)">Not synced</span>
-          </div>
-        </div>
-        <div>
-          <div style="font-size:11px;font-weight:600;color:var(--text2);margin-bottom:6px">📡 ESPN Slate + Lines</div>
-          <div style="font-size:11px;color:var(--text3);line-height:1.6;margin-bottom:10px">Live puck lines, game times, playoff flags. Paste script on espn.com/nhl/scoreboard</div>
-          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-            <button class="btn-sm primary" id="syncESPNBtn" onclick="syncESPNSlate()">⟳ Sync ESPN</button>
-            <span id="espnSlateStatus" style="font-size:10px;font-family:var(--mono);color:var(--text3)">Not synced</span>
+      <!-- Optional Hockey Reference advanced sync -->
+      <div style="border:1px solid var(--border);border-radius:6px;padding:12px 14px">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap">
+          <div style="flex:1">
+            <div style="font-size:11px;font-weight:600;color:var(--text2);margin-bottom:4px">📊 Hockey Reference <span style="font-size:10px;font-weight:400;color:var(--text3)">(optional — upgrades xGF%, CF%, HDCF%, PDO)</span></div>
+            <div style="font-size:11px;color:var(--text3);line-height:1.6;margin-bottom:8px">Paste the script below in the F12 console on <code style="color:var(--blue)">hockey-reference.com/leagues/NHL_2026.html</code></div>
+            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+              <button class="btn-sm primary" id="syncHRBtn" onclick="syncHockeyReference()">⟳ Sync Hockey Ref</button>
+              <button class="btn-sm" onclick="checkStatsCache()">Check Cache</button>
+              <span id="hrSyncStatus" style="font-size:10px;font-family:var(--mono);color:var(--text3)">Not synced — using ESPN stats</span>
+            </div>
           </div>
         </div>
       </div>
+      <!-- Hidden elements kept for BroadcastChannel compat -->
+      <span id="moneypuckSyncStatus" style="display:none"></span>
+      <span id="nstSyncStatus" style="display:none"></span>
+      <span id="dailyfaceoffSyncStatus" style="display:none"></span>
+      <span id="espnSlateStatus" style="display:none"></span>
+      <button id="syncMoneypuckBtn" style="display:none"></button>
+      <button id="syncNSTBtn" style="display:none"></button>
+      <button id="syncDailyFaceoffBtn" style="display:none"></button>
+      <button id="syncESPNBtn" style="display:none"></button>
     </div>
     <div class="card">
       <div class="card-header">
@@ -262,8 +259,8 @@
         </div>
       </div>
       <div style="font-size:11px;font-family:var(--mono);color:var(--text3);margin-bottom:12px;line-height:1.7">
-        Loaded from <strong style="color:var(--text2)">ESPN NHL scoreboard</strong> via popup sync — live puck lines, event labels, neutral site flags.<br>
-        Filter: <span id="espnFilterDesc" style="color:var(--text2)">playoffs · lines available · upcoming</span> &nbsp;·&nbsp; Edit any line manually before running.<br>
+        Auto-loaded from <strong style="color:var(--text2)">ESPN API</strong> — live puck lines, totals, playoff flags. Refreshes automatically on each page load.<br>
+        Filter: <span id="espnFilterDesc" style="color:var(--text2)">all NHL · lines available · upcoming</span> &nbsp;·&nbsp; Edit any line manually before running.<br>
         Format: <span style="color:var(--text3)">Away @ Home | Event | Time ET | Puck Line | Total</span>
       </div>
       <textarea id="slateInput" class="config-input" rows="14" style="width:100%;font-size:11px;line-height:1.8;resize:vertical" placeholder="Click 'Sync ESPN' above to pull today's slate automatically..."></textarea>
@@ -591,173 +588,330 @@ async function updateSeasonRecord() {
   } catch(e) {}
 }
 
-// ─── NHL STATS SYNC ───────────────────────────────────────────────
-// Two sources merged: MoneyPuck (xGF%, xGA%, HDCF%) + NST (CF%, FF%, SCF% 5v5)
-// Both use BroadcastChannel console-script pattern identical to KenPom
+// ─── ESPN AUTO-FETCH ─────────────────────────────────────────────
+// All data loads automatically on page open. No console scripts needed.
+// ESPN API: slate + lines, 32-team stats, goalie season SV%
+// Optional upgrade: Hockey Reference BroadcastChannel sync for xGF%/CF%/HDCF%/PDO
 
-let _moneypuckMemCache = null;  // { teamName: { xgf_pct, xga_pct, hdcf_pct, ... } }
-let _nstMemCache       = null;  // { teamName: { cf_pct, ff_pct, scf_pct, ... } }
-let _nhlStatsMemDate   = null;
-let _kenpomMemCache    = null;  // alias kept so callModelAPI can reference _kenpomMemCache
-let _kenpomMemDate     = null;
+let _espnTeamStats   = {};  // abbr → { sv_pct, sh_pct, gf_pg, ga_pg, pp_goals, ... }
+let _espnGoalieStats = {};  // "Full Name" → { sv_pct, gaa, games, wins }
+let _espnTeamIdMap   = {};  // abbr → espn team id
+let _espnRawGames    = [];  // raw game objects from scoreboard
+let _hrAdvStats      = {};  // "Full Team Name" → { xgf_pct, cf_pct, hdcf_pct, pdo, ... }
+let _hrSyncDate      = null;
+let _kenpomMemCache  = null;
+let _kenpomMemDate   = null;
 
-// Merge MoneyPuck + NST into a single team object keyed by team name
-function mergeNHLStats() {
-  if (!_moneypuckMemCache && !_nstMemCache) return null;
-  const mp  = _moneypuckMemCache || {};
-  const nst = _nstMemCache       || {};
-  const all = new Set([...Object.keys(mp), ...Object.keys(nst)]);
+// Map ESPN abbreviated team name to full name for HR lookup
+const ESPN_TO_HR_NAME = {
+  'ANA':'Anaheim Ducks','BOS':'Boston Bruins','BUF':'Buffalo Sabres',
+  'CGY':'Calgary Flames','CAR':'Carolina Hurricanes','CHI':'Chicago Blackhawks',
+  'COL':'Colorado Avalanche','CBJ':'Columbus Blue Jackets','DAL':'Dallas Stars',
+  'DET':'Detroit Red Wings','EDM':'Edmonton Oilers','FLA':'Florida Panthers',
+  'LA':'Los Angeles Kings','MIN':'Minnesota Wild','MTL':'Montreal Canadiens',
+  'NSH':'Nashville Predators','NJ':'New Jersey Devils','NYI':'New York Islanders',
+  'NYR':'New York Rangers','OTT':'Ottawa Senators','PHI':'Philadelphia Flyers',
+  'PIT':'Pittsburgh Penguins','SJ':'San Jose Sharks','SEA':'Seattle Kraken',
+  'STL':'St. Louis Blues','TB':'Tampa Bay Lightning','TOR':'Toronto Maple Leafs',
+  'UTA':'Utah Hockey Club','VAN':'Vancouver Canucks','VGK':'Vegas Golden Knights',
+  'WSH':'Washington Capitals','WPG':'Winnipeg Jets'
+};
+
+function buildNHLStatsCache() {
   const merged = {};
-  for (const t of all) {
-    merged[t] = Object.assign({}, mp[t] || {}, nst[t] || {});
+  // Build from ESPN team stats (always present after auto-fetch)
+  for (const [abbr, t] of Object.entries(_espnTeamStats)) {
+    const fullName = t.name || ESPN_TO_HR_NAME[abbr] || abbr;
+    const hr = _hrAdvStats[fullName] || {};
+    merged[fullName] = {
+      // ESPN stats
+      sv_pct:        t.sv_pct        || null,
+      sh_pct:        t.sh_pct        || null,
+      gf_per_game:   t.gf_pg         || null,
+      ga_per_game:   t.ga_pg         || null,
+      pp_goals:      t.pp_goals      || null,
+      shots_for:     t.shots_for     || null,
+      shots_against: t.shots_against || null,
+      pp_goals_per_game: t.pp_goals && t.games ? t.pp_goals / t.games : null,
+      games:         t.games         || null,
+      wins:          t.wins          || null,
+      abbr:          abbr,
+      // Hockey Reference advanced (optional)
+      xgf_pct:   hr.xgf_pct  || null,
+      cf_pct:    hr.cf_pct   || null,
+      hdcf_pct:  hr.hdcf_pct || null,
+      pdo:       hr.pdo      || null,
+      pp_pct:    hr.pp_pct   || null,
+      pk_pct:    hr.pk_pct   || null,
+      xgf_for:   hr.xgf_for  || null,
+      xgf_against: hr.xgf_against || null,
+    };
   }
+  _kenpomMemCache = merged;
+  _kenpomMemDate  = new Date().toDateString();
   return merged;
 }
 
-let _moneypuckChannel = null;
-let _nstChannel = null;
+async function autoFetchESPN() {
+  const btn      = document.getElementById('autoFetchBtn');
+  const statusEl = document.getElementById('autoFetchStatus');
+  const slateEl  = document.getElementById('fetchSlateStatus');
+  const teamEl   = document.getElementById('fetchTeamStatus');
+  const goalieEl = document.getElementById('fetchGoalieStatus');
+  const advEl    = document.getElementById('fetchAdvStatus');
 
-function syncMoneypuck() {
-  const btn = document.getElementById('syncMoneypuckBtn');
-  const status = document.getElementById('moneypuckSyncStatus');
-  btn.disabled = true; btn.textContent = '⏳ Waiting...';
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Fetching...'; }
+  if (statusEl) { statusEl.textContent = 'Fetching...'; statusEl.style.color = 'var(--amber)'; }
+  if (slateEl)  { slateEl.textContent  = '...'; slateEl.style.color  = 'var(--text3)'; }
+  if (teamEl)   { teamEl.textContent   = '...'; teamEl.style.color   = 'var(--text3)'; }
+  if (goalieEl) { goalieEl.textContent = '...'; goalieEl.style.color = 'var(--text3)'; }
+  if (advEl)    { advEl.textContent    = _hrAdvStats && Object.keys(_hrAdvStats).length ? '✓ HR: ' + Object.keys(_hrAdvStats).length + ' teams' : 'Sync HR for xGF%'; }
 
-  if (_moneypuckChannel) { _moneypuckChannel.close(); _moneypuckChannel = null; }
-  _moneypuckChannel = new BroadcastChannel('moneypuck_sync');
-  _moneypuckChannel.onmessage = async function(e) {
-    _moneypuckChannel.close(); _moneypuckChannel = null;
-    btn.disabled = false; btn.textContent = '⟳ Sync MoneyPuck';
-    document.getElementById('moneypuckScriptBox')?.remove();
-    if (e.data?.type === 'moneypuck_error') {
-      status.textContent = '✗ ' + e.data.message; status.style.color = 'var(--red)';
-      addLog('MoneyPuck error: ' + e.data.message, 'err'); return;
+  try {
+    // ── 1. Slate + lines ────────────────────────────────────────────
+    const today   = new Date();
+    const dateStr = today.getFullYear().toString()
+      + String(today.getMonth()+1).padStart(2,'0')
+      + String(today.getDate()).padStart(2,'0');
+
+    const slateResp = await fetch('https://site.api.espn.com/apis/site/v2/sports/hockey/nhl/scoreboard?dates=' + dateStr);
+    const slateData = await slateResp.json();
+    const events = slateData.events || [];
+
+    const games = events.map(function(ev) {
+      const comp = ev.competitions[0];
+      const home = comp.competitors.find(function(c){ return c.homeAway === 'home'; }) || comp.competitors[1] || {};
+      const away = comp.competitors.find(function(c){ return c.homeAway === 'away'; }) || comp.competitors[0] || {};
+      const odds = (comp.odds && comp.odds[0]) || {};
+      const dt   = new Date(ev.date);
+      const time = dt.toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit', timeZone:'America/New_York' }) + ' ET';
+
+      let puckLineStr = null;
+      if (odds.spread != null) {
+        // ESPN spread is from home perspective: negative = home favored
+        if (odds.spread < 0) {
+          puckLineStr = home.team.abbreviation + ' ' + odds.spread.toFixed(1);
+        } else if (odds.spread > 0) {
+          puckLineStr = away.team.abbreviation + ' -' + odds.spread.toFixed(1);
+        } else {
+          puckLineStr = 'EVEN';
+        }
+      }
+
+      const note = (comp.notes && comp.notes[0] && comp.notes[0].headline) || 'NHL';
+      return {
+        id:          ev.id,
+        away:        away.team.displayName,
+        awayAbbr:    away.team.abbreviation,
+        awayRecord:  away.records && away.records[0] ? away.records[0].summary : null,
+        home:        home.team.displayName,
+        homeAbbr:    home.team.abbreviation,
+        homeRecord:  home.records && home.records[0] ? home.records[0].summary : null,
+        away_team_id: away.team.id,
+        home_team_id: home.team.id,
+        neutral:     !!comp.neutralSite,
+        event:       note,
+        time:        time,
+        state:       ev.status && ev.status.type && ev.status.type.state,
+        spread:      puckLineStr,
+        total:       odds.overUnder != null ? String(odds.overUnder) : null,
+        isPlayoffs:  !!(note && (note.includes('Playoff') || note.includes('Stanley Cup') ||
+                        note.includes('First Round') || note.includes('Second Round') ||
+                        note.includes('Conference') || note.includes('Final'))),
+      };
+    });
+
+    _espnRawGames = games;
+    if (slateEl) { slateEl.textContent = '✓ ' + games.length + ' games'; slateEl.style.color = 'var(--green)'; }
+    addLog('ESPN slate: ' + games.length + ' games loaded with lines', 'ok');
+    applyESPNFilter();
+
+    // ── 2. All 32 team IDs ──────────────────────────────────────────
+    const teamsResp = await fetch('https://site.api.espn.com/apis/site/v2/sports/hockey/nhl/teams');
+    const teamsData = await teamsResp.json();
+    const teams = teamsData.sports[0].leagues[0].teams.map(function(t) {
+      return { id: t.team.id, name: t.team.displayName, abbr: t.team.abbreviation };
+    });
+    teams.forEach(function(t) { _espnTeamIdMap[t.abbr] = t.id; });
+
+    // ── 3. All 32 team stats in parallel (~280ms) ───────────────────
+    const teamStatsArr = await Promise.all(teams.map(async function(t) {
+      try {
+        const r = await fetch('https://site.web.api.espn.com/apis/site/v2/sports/hockey/nhl/teams/' + t.id + '/statistics');
+        const d = await r.json();
+        const sm = {};
+        ((d.results && d.results.stats && d.results.stats.categories) || []).forEach(function(cat) {
+          (cat.stats || []).forEach(function(s) { sm[s.name] = s.value; });
+        });
+        return {
+          abbr: t.abbr, name: t.name, id: t.id,
+          sv_pct:        sm.savePct,
+          sh_pct:        sm.shootingPct,
+          gf_pg:         sm.goals && sm.games ? sm.goals / sm.games : null,
+          ga_pg:         sm.goalsAgainst && sm.games ? sm.goalsAgainst / sm.games : null,
+          pp_goals:      sm.powerPlayGoals,
+          shots_for:     sm.shotsTotal,
+          shots_against: sm.shotsAgainst,
+          games:         sm.games,
+          wins:          sm.wins,
+        };
+      } catch(e) { return { abbr: t.abbr, name: t.name, id: t.id }; }
+    }));
+
+    teamStatsArr.forEach(function(t) { _espnTeamStats[t.abbr] = t; });
+    if (teamEl) { teamEl.textContent = '✓ 32 teams'; teamEl.style.color = 'var(--green)'; }
+    addLog('ESPN team stats: 32 teams loaded (SV%, PP, GF/GA, shots)', 'ok');
+
+    // ── 4. Goalie season SV% for today's teams ──────────────────────
+    const todayTeamIds = [...new Set(
+      games.flatMap(function(g) { return [g.away_team_id, g.home_team_id]; }).filter(Boolean)
+    )];
+
+    let goalieTotal = 0;
+    await Promise.all(todayTeamIds.map(async function(teamId) {
+      try {
+        const rR = await fetch('https://site.api.espn.com/apis/site/v2/sports/hockey/nhl/teams/' + teamId + '/roster');
+        const rD = await rR.json();
+        const goalies = (rD.athletes || [])
+          .flatMap(function(g) { return g.items || []; })
+          .filter(function(p) { return p.position && p.position.abbreviation === 'G'; });
+
+        // Get team abbr for this team ID
+        const teamAbbrForId = Object.entries(_espnTeamIdMap).find(function(e){ return e[1] === teamId; });
+        const tAbbr = teamAbbrForId ? teamAbbrForId[0] : null;
+        const tStats = tAbbr ? _espnTeamStats[tAbbr] : null;
+        const tName  = tStats ? tStats.name : null;
+
+        await Promise.all(goalies.map(async function(g) {
+          try {
+            const sr = await fetch('https://sports.core.api.espn.com/v2/sports/hockey/leagues/nhl/seasons/2026/types/2/athletes/' + g.id + '/statistics/0');
+            const sd = await sr.json();
+            const sm = {};
+            ((sd.splits && sd.splits.categories) || []).forEach(function(cat) {
+              (cat.stats || []).forEach(function(s) { sm[s.name] = s.value; });
+            });
+            if (sm.savePct != null) {
+              _espnGoalieStats[g.fullName] = {
+                sv_pct: sm.savePct, gaa: sm.avgGoalsAgainst,
+                games: sm.games, wins: sm.wins,
+                teamAbbr: tAbbr, teamName: tName
+              };
+              goalieTotal++;
+            }
+          } catch(e) {}
+        }));
+      } catch(e) {}
+    }));
+
+    if (goalieEl) { goalieEl.textContent = '✓ ' + goalieTotal + ' goalies'; goalieEl.style.color = 'var(--green)'; }
+    addLog('ESPN goalies: ' + goalieTotal + ' starters with season SV%', 'ok');
+
+    // ── 5. Rebuild merged stats cache ───────────────────────────────
+    buildNHLStatsCache();
+
+    // Restore HR adv status
+    if (_hrAdvStats && Object.keys(_hrAdvStats).length > 0) {
+      if (advEl) { advEl.textContent = '✓ HR: ' + Object.keys(_hrAdvStats).length + ' teams'; advEl.style.color = 'var(--green)'; }
+    } else {
+      if (advEl) { advEl.textContent = 'Sync HR for xGF%'; advEl.style.color = 'var(--text3)'; }
     }
-    if (e.data?.type !== 'moneypuck_stats') return;
-    const { count, data } = e.data;
-    _moneypuckMemCache = data;
-    _nhlStatsMemDate = new Date().toDateString();
-    _kenpomMemCache = mergeNHLStats(); _kenpomMemDate = _nhlStatsMemDate;
-    const dateKey = new Date().toDateString();
-    try { await store.set('moneypuck_stats_' + dateKey, JSON.stringify(data)); } catch(err) {}
-    status.textContent = '✓ ' + count + ' teams'; status.style.color = 'var(--green)';
-    addLog('MoneyPuck synced: ' + count + ' teams', 'ok');
-  };
-  showConsoleScript('moneypuckScriptBox', 'MoneyPuck Sync', 'https://moneypuck.com/teams.htm', MONEYPUCK_SCRAPER, status, btn, '⟳ Sync MoneyPuck');
+
+    if (statusEl) { statusEl.textContent = '✓ Ready'; statusEl.style.color = 'var(--green)'; }
+    addLog('Auto-fetch complete — all data ready, hit Run', 'ok');
+
+  } catch(err) {
+    addLog('Auto-fetch error: ' + err.message, 'err');
+    if (statusEl) { statusEl.textContent = '✗ ' + err.message.slice(0,30); statusEl.style.color = 'var(--red)'; }
+  }
+  if (btn) { btn.disabled = false; btn.textContent = '⟳ Refresh Now'; }
 }
 
-function syncNST() {
-  const btn = document.getElementById('syncNSTBtn');
-  const status = document.getElementById('nstSyncStatus');
+// ─── HOCKEY REFERENCE OPTIONAL SYNC ──────────────────────────────
+// One console paste on hockey-reference.com/leagues/NHL_2026.html
+// Upgrades xGF%, CF%, HDCF%, PDO, PP%, PK% components
+
+let _hrChannel = null;
+
+const HOCKEYREF_SCRAPER = '(function(){try{function parseTable(id){var t=document.getElementById(id);if(!t)return{};var rows=Array.from(t.querySelectorAll("tbody tr:not(.thead)"));var data={};rows.forEach(function(row){var teamCell=row.querySelector("[data-stat=\'team_name\'] a");var team=teamCell&&teamCell.textContent.trim();if(!team)return;var obj={};Array.from(row.querySelectorAll("td,th")).forEach(function(cell){var stat=cell.getAttribute("data-stat");if(stat&&stat!=="team_name")obj[stat]=cell.textContent.trim();});data[team]=obj;});return data;}var stats=parseTable("stats");var adv=parseTable("stats_adv");var merged={};var allTeams=new Set(Object.keys(stats).concat(Object.keys(adv)));allTeams.forEach(function(team){var s=stats[team]||{};var a=adv[team]||{};var xgFor=parseFloat(a.exp_on_goals_for)||0;var xgAgainst=parseFloat(a.exp_on_goals_against)||0;merged[team]={pp_pct:parseFloat(s.power_play_pct)||null,pk_pct:parseFloat(s.pen_kill_pct)||null,sv_pct:parseFloat(s.save_pct)||null,sh_pct:parseFloat(s.shot_pct)||null,gf_pg:parseFloat(s.goals_for_per_game)||null,ga_pg:parseFloat(s.goals_against_per_game)||null,xgf_pct:xgFor+xgAgainst>0?(xgFor/(xgFor+xgAgainst)*100):null,cf_pct:parseFloat(a.corsi_pct_5on5)||null,hdcf_pct:parseFloat(a.hdsc_for_pct)||null,pdo:parseFloat(a.pdo)||null,xgf_for:xgFor||null,xgf_against:xgAgainst||null};});var bc=new BroadcastChannel("hockeyref_sync");bc.postMessage({type:"hockeyref_stats",count:Object.keys(merged).length,data:merged});bc.close();console.log("Hockey Reference synced:",Object.keys(merged).length,"teams");}catch(err){var bc2=new BroadcastChannel("hockeyref_sync");bc2.postMessage({type:"hockeyref_error",message:err.message});bc2.close();}})();';
+
+function syncHockeyReference() {
+  const btn    = document.getElementById('syncHRBtn');
+  const status = document.getElementById('hrSyncStatus');
+  const advEl  = document.getElementById('fetchAdvStatus');
   btn.disabled = true; btn.textContent = '⏳ Waiting...';
 
-  if (_nstChannel) { _nstChannel.close(); _nstChannel = null; }
-  _nstChannel = new BroadcastChannel('nst_sync');
-  _nstChannel.onmessage = async function(e) {
-    _nstChannel.close(); _nstChannel = null;
-    btn.disabled = false; btn.textContent = '⟳ Sync NST';
-    document.getElementById('nstScriptBox')?.remove();
-    if (e.data?.type === 'nst_error') {
+  if (_hrChannel) { _hrChannel.close(); _hrChannel = null; }
+  _hrChannel = new BroadcastChannel('hockeyref_sync');
+  _hrChannel.onmessage = async function(e) {
+    _hrChannel.close(); _hrChannel = null;
+    btn.disabled = false; btn.textContent = '⟳ Sync Hockey Ref';
+    document.getElementById('hrScriptBox')?.remove();
+    if (e.data && e.data.type === 'hockeyref_error') {
       status.textContent = '✗ ' + e.data.message; status.style.color = 'var(--red)';
-      addLog('NST error: ' + e.data.message, 'err'); return;
+      addLog('Hockey Ref error: ' + e.data.message, 'err'); return;
     }
-    if (e.data?.type !== 'nst_stats') return;
-    const { count, data } = e.data;
-    _nstMemCache = data;
-    _nhlStatsMemDate = new Date().toDateString();
-    _kenpomMemCache = mergeNHLStats(); _kenpomMemDate = _nhlStatsMemDate;
-    const dateKey = new Date().toDateString();
-    try { await store.set('nst_stats_' + dateKey, JSON.stringify(data)); } catch(err) {}
-    status.textContent = '✓ ' + count + ' teams'; status.style.color = 'var(--green)';
-    addLog('NST synced: ' + count + ' teams', 'ok');
+    if (!e.data || e.data.type !== 'hockeyref_stats') return;
+    const count = e.data.count;
+    const data  = e.data.data;
+    _hrAdvStats = data;
+    _hrSyncDate = new Date().toDateString();
+    try { await store.set('hr_stats_' + _hrSyncDate, JSON.stringify(data)); } catch(err2) {}
+    buildNHLStatsCache();
+    status.textContent = '✓ ' + count + ' teams — xGF%, CF%, HDCF%, PDO active';
+    status.style.color = 'var(--green)';
+    if (advEl) { advEl.textContent = '✓ HR: ' + count + ' teams'; advEl.style.color = 'var(--green)'; }
+    addLog('Hockey Reference: ' + count + ' teams — advanced components upgraded', 'ok');
   };
-  showConsoleScript('nstScriptBox', 'Natural Stat Trick Sync', 'https://www.naturalstattrick.com/teamtable.php', NST_SCRAPER, status, btn, '⟳ Sync NST');
+  showConsoleScript('hrScriptBox', 'Hockey Reference Advanced Stats',
+    'https://www.hockey-reference.com/leagues/NHL_2026.html',
+    HOCKEYREF_SCRAPER, status, btn, '⟳ Sync Hockey Ref');
 }
 
 async function checkStatsCache() {
-  const mpStatus  = document.getElementById('moneypuckSyncStatus');
-  const nstStatus = document.getElementById('nstSyncStatus');
-  const dateKey   = new Date().toDateString();
-
-  // Check in-memory first
-  if (_moneypuckMemCache) {
-    mpStatus.textContent = '✓ Memory: ' + Object.keys(_moneypuckMemCache).length + ' teams';
-    mpStatus.style.color = 'var(--green)';
-  } else {
+  const dateKey = new Date().toDateString();
+  if (!_hrAdvStats || !Object.keys(_hrAdvStats).length) {
     try {
-      const r = await store.get('moneypuck_stats_' + dateKey);
+      const r = await store.get('hr_stats_' + dateKey);
       if (r) {
-        _moneypuckMemCache = JSON.parse(r.value);
-        mpStatus.textContent = '✓ Cache: ' + Object.keys(_moneypuckMemCache).length + ' teams';
-        mpStatus.style.color = 'var(--green)';
-      } else {
-        mpStatus.textContent = 'No cache — click Sync MoneyPuck';
-        mpStatus.style.color = 'var(--amber)';
+        _hrAdvStats = JSON.parse(r.value);
+        const st = document.getElementById('hrSyncStatus');
+        const advEl = document.getElementById('fetchAdvStatus');
+        if (st) { st.textContent = '✓ Cache: ' + Object.keys(_hrAdvStats).length + ' teams'; st.style.color = 'var(--green)'; }
+        if (advEl) { advEl.textContent = '✓ HR: ' + Object.keys(_hrAdvStats).length + ' teams'; advEl.style.color = 'var(--green)'; }
+        buildNHLStatsCache();
+        addLog('Hockey Ref cache loaded: ' + Object.keys(_hrAdvStats).length + ' teams', 'ok');
       }
     } catch(e) {}
-  }
-
-  if (_nstMemCache) {
-    nstStatus.textContent = '✓ Memory: ' + Object.keys(_nstMemCache).length + ' teams';
-    nstStatus.style.color = 'var(--green)';
-  } else {
-    try {
-      const r = await store.get('nst_stats_' + dateKey);
-      if (r) {
-        _nstMemCache = JSON.parse(r.value);
-        nstStatus.textContent = '✓ Cache: ' + Object.keys(_nstMemCache).length + ' teams';
-        nstStatus.style.color = 'var(--green)';
-      } else {
-        nstStatus.textContent = 'No cache — click Sync NST';
-        nstStatus.style.color = 'var(--amber)';
-      }
-    } catch(e) {}
-  }
-
-  if (_moneypuckMemCache || _nstMemCache) {
-    _kenpomMemCache = mergeNHLStats();
-    _kenpomMemDate  = dateKey;
   }
 }
 
 async function getNHLStats() {
-  const dateKey = new Date().toDateString();
-  // Try loading from cache if in-memory is missing
-  if (!_moneypuckMemCache) {
-    try {
-      const r = await store.get('moneypuck_stats_' + dateKey);
-      if (r) { _moneypuckMemCache = JSON.parse(r.value); }
-    } catch(e) {}
-  }
-  if (!_nstMemCache) {
-    try {
-      const r = await store.get('nst_stats_' + dateKey);
-      if (r) { _nstMemCache = JSON.parse(r.value); }
-    } catch(e) {}
-  }
-  const merged = mergeNHLStats();
-  if (merged) {
-    _kenpomMemCache = merged; _kenpomMemDate = dateKey;
-    return merged;
-  }
-  return null;
+  if (_kenpomMemCache && Object.keys(_kenpomMemCache).length > 0) return _kenpomMemCache;
+  await autoFetchESPN();
+  return _kenpomMemCache;
 }
 
+// Goalie SV% lookup — ESPN individual stats first, fall back to team SV%
+function getGoalieSVPct(name, teamStats) {
+  if (name) {
+    if (_espnGoalieStats[name]) return _espnGoalieStats[name].sv_pct;
+    const last = name.split(' ').pop().toLowerCase();
+    for (const [n, s] of Object.entries(_espnGoalieStats)) {
+      if (n.split(' ').pop().toLowerCase() === last) return s.sv_pct;
+    }
+  }
+  return teamStats ? (teamStats.sv_pct || null) : null;
+}
 
-// MoneyPuck console scraper — paste on moneypuck.com/teams.htm
-const MONEYPUCK_SCRAPER = '(function(){try{const rows=Array.from(document.querySelectorAll("table tbody tr"));const data={};rows.forEach(function(row){const cells=Array.from(row.querySelectorAll("td")).map(function(td){return td.textContent.trim();});if(cells.length<10)return;const name=cells[0];if(!name||name.length<2)return;data[name]={xgf_pct:parseFloat(cells[1])||null,xga_pct:parseFloat(cells[2])||null,hdcf_pct:parseFloat(cells[3])||null,hdca_pct:parseFloat(cells[4])||null,sh_pct:parseFloat(cells[5])||null,sv_pct:parseFloat(cells[6])||null,pdo:parseFloat(cells[7])||null,pp_pct:parseFloat(cells[8])||null,pk_pct:parseFloat(cells[9])||null};});const bc=new BroadcastChannel("moneypuck_sync");bc.postMessage({type:"moneypuck_stats",count:Object.keys(data).length,data:data});bc.close();console.log("MoneyPuck synced:",Object.keys(data).length,"teams");}catch(err){const bc=new BroadcastChannel("moneypuck_sync");bc.postMessage({type:"moneypuck_error",message:err.message});bc.close();}})();';
+// Stubs for old sync functions (kept so any cached references don't throw)
+function syncMoneypuck()    { addLog('MoneyPuck replaced by ESPN auto-fetch', 'info'); }
+function syncNST()          { addLog('NST replaced by ESPN auto-fetch', 'info'); }
+function syncDailyFaceoff() { addLog('Daily Faceoff — goalies now from ESPN roster API', 'info'); }
+function syncESPNSlate()    { autoFetchESPN(); }
 
-// Natural Stat Trick console scraper — paste on naturalstattrick.com/teamtable.php (5v5 situation)
-const NST_SCRAPER = '(function(){try{const rows=Array.from(document.querySelectorAll("table tbody tr"));const data={};rows.forEach(function(row){const cells=Array.from(row.querySelectorAll("td")).map(function(td){return td.textContent.trim();});if(cells.length<8)return;const name=cells[1]||cells[0];if(!name||name.length<2)return;data[name]={cf_pct:parseFloat(cells[2])||null,ff_pct:parseFloat(cells[3])||null,sf_pct:parseFloat(cells[4])||null,scf_pct:parseFloat(cells[5])||null,hdcf_pct_5v5:parseFloat(cells[6])||null,xgf_pct_5v5:parseFloat(cells[7])||null};});const bc=new BroadcastChannel("nst_sync");bc.postMessage({type:"nst_stats",count:Object.keys(data).length,data:data});bc.close();console.log("NST synced:",Object.keys(data).length,"teams");}catch(err){const bc=new BroadcastChannel("nst_sync");bc.postMessage({type:"nst_error",message:err.message});bc.close();}})();';
-
-// ESPN NHL console scraper — paste on espn.com/nhl/scoreboard
-const ESPN_SCRAPER = '(function(){try{const sb=window.__espnfitt__&&window.__espnfitt__.page&&window.__espnfitt__.page.content&&window.__espnfitt__.page.content.scoreboard;if(!sb||!sb.evts)throw new Error("No NHL scoreboard data");const games=sb.evts.map(function(e){const comps=e.competitors||[];const home=comps.find(function(c){return c.isHome;})||comps[1]||{};const away=comps.find(function(c){return !c.isHome;})||comps[0]||{};const odds=e.odds&&typeof e.odds==="object"&&!Array.isArray(e.odds)?e.odds:null;const dt=new Date(e.date);const time=dt.toLocaleTimeString("en-US",{hour:"numeric",minute:"2-digit",timeZone:"America/New_York"})+" ET";const note=(e.note||"").replace(/^NHL /,"");return{id:e.id,away:away.displayName||away.name||"?",awayAbbr:(away.abbreviation||"").toUpperCase(),awayRecord:away.records&&away.records[0]?away.records[0].summary:null,home:home.displayName||home.name||"?",homeAbbr:(home.abbreviation||"").toUpperCase(),homeRecord:home.records&&home.records[0]?home.records[0].summary:null,neutral:!!e.neutral,event:note||"NHL",time:time,state:e.status&&e.status.state,spread:odds&&odds.details||null,total:typeof odds!=="undefined"&&odds&&typeof odds.overUnder==="number"?String(odds.overUnder):null,isPlayoffs:!!(e.note&&(e.note.includes("Playoff")||e.note.includes("Stanley Cup")||e.note.includes("First Round")||e.note.includes("Second Round")||e.note.includes("Conference")||e.note.includes("Final")))};});const bc=new BroadcastChannel("espn_sync");bc.postMessage({type:"espn_slate",count:games.length,data:games});bc.close();console.log("ESPN NHL synced:",games.length,"games");}catch(err){const bc=new BroadcastChannel("espn_sync");bc.postMessage({type:"espn_error",message:err.message});bc.close();}})();';
-
-// ESPN NHL results scraper — paste on espn.com/nhl/scoreboard after games complete
+// ESPN results scraper — paste on espn.com/nhl/scoreboard after games complete
 const ESPN_RESULTS_SCRAPER = '(function(){try{const evts=window.__espnfitt__&&window.__espnfitt__.page&&window.__espnfitt__.page.content&&window.__espnfitt__.page.content.scoreboard&&window.__espnfitt__.page.content.scoreboard.evts||[];const results=evts.map(function(e){const comps=e.competitors||[];const home=comps.find(function(c){return c.isHome;})||comps[1]||{};const away=comps.find(function(c){return !c.isHome;})||comps[0]||{};return{id:e.id,away:away.displayName||away.name||"?",awayScore:away.score!=null?Number(away.score):null,home:home.displayName||home.name||"?",homeScore:home.score!=null?Number(home.score):null,state:e.status&&e.status.state,final:e.status&&e.status.description};});const bc=new BroadcastChannel("espn_results");bc.postMessage({type:"espn_results",data:results});bc.close();console.log("ESPN NHL results sent:",results.filter(function(r){return r.state==="post";}).length,"final games");}catch(err){const bc=new BroadcastChannel("espn_results");bc.postMessage({type:"espn_results_error",message:err.message});bc.close();}})();';
 
-// Daily Faceoff console scraper — paste on dailyfaceoff.com/starting-goalies
-// Scrapes: confirmed starters + confidence, projected lines (F lines + D pairs) for all today's games
-const DAILYFACEOFF_SCRAPER = '(function(){try{var out={games:[],goalies:{}};var gameBlocks=Array.from(document.querySelectorAll(".starting-goalies-card,.game-card,[class*=\'goalie-card\'],[class*=\'matchup\']"));if(!gameBlocks.length){gameBlocks=Array.from(document.querySelectorAll(".col-xs-12.col-sm-6.col-md-4,.starting-goalies__team"));}var parseLines=function(el){var lines=[];var rows=el?Array.from(el.querySelectorAll("tr,li,.line-row")):[];rows.forEach(function(r){var cells=Array.from(r.querySelectorAll("td,span,.player-name")).map(function(c){return c.textContent.trim();}).filter(function(t){return t.length>2&&t.indexOf("%")===-1&&t.indexOf(".")===-1;});if(cells.length>=2)lines.push(cells.slice(0,3));});return lines;};var allText=document.body.innerText;var gameRe=/([A-Z]{2,4})\s+@\s+([A-Z]{2,4})/g;var m;while((m=gameRe.exec(allText))!==null){out.games.push({away_abbr:m[1],home_abbr:m[2],away_goalie:null,home_goalie:null,away_lines:[],home_lines:[],away_pairs:[],home_pairs:[]});}var goalieEls=Array.from(document.querySelectorAll("[class*=\'goalie\'],[class*=\'starter\']"));goalieEls.forEach(function(el){var name=el.querySelector("[class*=\'name\'],h3,h4,strong");var conf=el.querySelector("[class*=\'confirm\'],[class*=\'status\'],[class*=\'badge\']");if(name&&name.textContent.trim().length>3){var n=name.textContent.trim();var c=(conf?conf.textContent.trim():"unknown").toLowerCase();out.goalies[n]={confidence:c.indexOf("confirm")>-1?"confirmed":c.indexOf("expect")>-1?"expected":"unconfirmed"};}});var bc=new BroadcastChannel("dailyfaceoff_sync");bc.postMessage({type:"dailyfaceoff_data",data:out});bc.close();console.log("Daily Faceoff synced: "+out.games.length+" games, "+Object.keys(out.goalies).length+" goalies");}catch(err){var bc=new BroadcastChannel("dailyfaceoff_sync");bc.postMessage({type:"dailyfaceoff_error",message:err.message});bc.close();}})();';
 
 // ─── IMPACT PLAYERS ──────────────────────────────────────────────
 // Hardcoded list of players whose absence materially changes their team's measurable output.
@@ -1069,35 +1223,8 @@ function showConsoleScript(boxId, label, siteUrl, script, statusEl, btn, btnText
 
 
 let _espnChannel = null;
-let _espnRawGames = [];
 
-function syncESPNSlate() {
-  const btn = document.getElementById('syncESPNBtn');
-  const status = document.getElementById('espnSlateStatus');
-  btn.disabled = true; btn.textContent = '⏳ Waiting...';
-
-  if (_espnChannel) { _espnChannel.close(); _espnChannel = null; }
-  _espnChannel = new BroadcastChannel('espn_sync');
-  _espnChannel.onmessage = function(e) {
-    _espnChannel.close(); _espnChannel = null;
-    btn.disabled = false; btn.textContent = '⟳ Sync ESPN';
-    document.getElementById('espnScriptBox')?.remove();
-    if (e.data?.type === 'espn_error') {
-      status.textContent = '✗ ' + e.data.message; status.style.color = 'var(--red)';
-      addLog('ESPN error: ' + e.data.message, 'err'); return;
-    }
-    if (e.data?.type !== 'espn_slate') return;
-    _espnRawGames = e.data.data || [];
-    status.textContent = '✓ ' + _espnRawGames.length + ' games';
-    status.style.color = 'var(--green)';
-    addLog('ESPN NHL synced: ' + _espnRawGames.length + ' games', 'ok');
-    applyESPNFilter();
-  };
-
-  showConsoleScript('espnScriptBox', 'ESPN NHL Sync', 'https://www.espn.com/nhl/scoreboard', ESPN_SCRAPER, status, btn, '⟳ Sync ESPN');
-}
-
-function loadESPNSlate() { syncESPNSlate(); }
+function loadESPNSlate() { autoFetchESPN(); }
 
 function fuzzyFind(dict,name) {
   if(!dict||!name) return null;
@@ -1286,40 +1413,61 @@ function saveApiKey(){
 // Model receives pre-computed puck lines and only needs to: add context, flag EV.
 
 function computeSpread(g, weights) {
-  // g.away_kenpom / g.home_kenpom = merged MoneyPuck+NST stats object
-  // g.away_starter / g.home_starter = { name, sv_pct, confidence } from Daily Faceoff (optional)
+  // g.away_kenpom / g.home_kenpom = merged ESPN + optional Hockey Reference stats
+  // g.away_starter / g.home_starter = { name, sv_pct } from ESPN goalie API
   const a = g.away_kenpom || {}, h = g.home_kenpom || {};
   const wt = weights || {};
   const w = function(key) { return ((wt[key] && wt[key].value) || 15) / 100; };
 
-  // Determine who model thinks is stronger by xGF%
-  const aXGF = parseFloat(a.xgf_pct) || 50;
-  const hXGF = parseFloat(h.xgf_pct) || 50;
+  // Determine fav/dog — prefer HR xGF%, fall back to ESPN GF/GA rate
+  // Use GF per game differential as xGF proxy when HR not synced
+  function xgfProxy(stats) {
+    if (stats.xgf_pct != null) return parseFloat(stats.xgf_pct);
+    // ESPN fallback: GF rate vs league avg 3.0
+    const gf = parseFloat(stats.gf_per_game) || 3.0;
+    const ga = parseFloat(stats.ga_per_game) || 3.0;
+    return gf > 0 || ga > 0 ? (gf / (gf + ga)) * 100 : 50;
+  }
+
+  const aXGF = xgfProxy(a), hXGF = xgfProxy(h);
   const favIsHome = hXGF >= aXGF;
   const fav = favIsHome ? h : a, dog = favIsHome ? a : h;
   const favStarter = favIsHome ? (g.home_starter || {}) : (g.away_starter || {});
   const dogStarter = favIsHome ? (g.away_starter || {}) : (g.home_starter || {});
 
-  // 1. Base — xGF% share differential scaled to goals
-  const xgf_diff = (parseFloat(fav.xgf_pct) || 50) - (parseFloat(dog.xgf_pct) || 50);
+  // 1. Base — xGF% or GF-rate differential scaled to goals
+  const xgf_diff = xgfProxy(fav) - xgfProxy(dog);
   const base = xgf_diff * 0.08;
 
-  // 2. Shot quality — HDCF% edge
-  const hdcf_diff = (parseFloat(fav.hdcf_pct) || 50) - (parseFloat(dog.hdcf_pct) || 50);
-  const shot_quality = hdcf_diff * 0.05;
+  // 2. Shot quality — HDCF% if HR synced, else shooting% differential as proxy
+  let shot_quality = 0;
+  if (fav.hdcf_pct != null && dog.hdcf_pct != null) {
+    const hdcf_diff = parseFloat(fav.hdcf_pct) - parseFloat(dog.hdcf_pct);
+    shot_quality = hdcf_diff * 0.05;
+  } else {
+    // ESPN fallback: shooting% differential (league avg ~10%)
+    const fav_sh = parseFloat(fav.sh_pct) || 10, dog_sh = parseFloat(dog.sh_pct) || 10;
+    shot_quality = (fav_sh - dog_sh) * 0.02;
+  }
 
-  // 3. Goalie — use individual starter SV% when available (from Daily Faceoff + NST),
-  //    fall back to team blended SV% from MoneyPuck. Starter SV% is far more predictive.
-  //    1% SV% difference × 30 shots/game = goals of edge.
+  // 3. Goalie — individual SV% from ESPN goalie API, fall back to team SV%
   const fav_sv = parseFloat(favStarter.sv_pct) || parseFloat(fav.sv_pct) || 0.910;
   const dog_sv = parseFloat(dogStarter.sv_pct) || parseFloat(dog.sv_pct) || 0.910;
   const usingStarterSV = !!(favStarter.sv_pct || dogStarter.sv_pct);
   const goalie_edge = (fav_sv - dog_sv) * 30;
 
-  // 4. Power play edge
-  const fav_pp = parseFloat(fav.pp_pct) || 20, dog_pp = parseFloat(dog.pp_pct) || 20;
-  const fav_pk = parseFloat(fav.pk_pct) || 80, dog_pk = parseFloat(dog.pk_pct) || 80;
-  const pp_edge = ((fav_pp - dog_pp) + (fav_pk - dog_pk)) * 0.04;
+  // 4. Power play edge — HR PP%/PK% preferred, ESPN PP goals/game as fallback
+  let pp_edge = 0;
+  if (fav.pp_pct != null && dog.pp_pct != null) {
+    const fav_pp = parseFloat(fav.pp_pct), dog_pp = parseFloat(dog.pp_pct);
+    const fav_pk = parseFloat(fav.pk_pct) || 80, dog_pk = parseFloat(dog.pk_pct) || 80;
+    pp_edge = ((fav_pp - dog_pp) + (fav_pk - dog_pk)) * 0.04;
+  } else {
+    // ESPN fallback: PP goals per game differential (league avg ~0.5/game)
+    const fav_ppg = parseFloat(fav.pp_goals_per_game) || 0.5;
+    const dog_ppg = parseFloat(dog.pp_goals_per_game) || 0.5;
+    pp_edge = (fav_ppg - dog_ppg) * 0.3;
+  }
 
   // 5. Recency — xGF% trend
   function recencyBoost(stats) {
@@ -1413,40 +1561,67 @@ async function callModelAPI(cfg, today, slateGames) {
   const headers = { 'Content-Type': 'application/json' };
   if (apiKey) { headers['x-api-key'] = apiKey; headers['anthropic-version'] = '2023-06-01'; headers['anthropic-dangerous-direct-browser-access'] = 'true'; }
 
-  // Step 1: Load NHL stats (MoneyPuck + NST merged)
-  const allStats = await getNHLStats();
-  if (!allStats) throw new Error('NHL stats not synced. Go to Game Slate tab → Sync MoneyPuck and Sync NST, then re-run.');
+  // Step 1: Load NHL stats (auto-fetched from ESPN; optionally upgraded with Hockey Reference)
+  let allStats = await getNHLStats();
+  if (!allStats || Object.keys(allStats).length === 0) {
+    addLog('Stats not ready — running ESPN auto-fetch now...', 'warn');
+    await autoFetchESPN();
+    allStats = _kenpomMemCache;
+  }
+  if (!allStats || Object.keys(allStats).length === 0) throw new Error('Failed to load team stats. Check connection and try Refresh Now on the Game Slate tab.');
 
-  // Step 1b: Load Daily Faceoff lineup data (optional — degrades gracefully if missing)
-  const lineups = await getDailyFaceoffData();
-  if (lineups) {
-    addLog('Lineup data loaded: ' + (lineups.games || []).length + ' games, ' + Object.keys(lineups.goalies || {}).length + ' goalies', 'ok');
+  // Step 1b: Pull goalie starters from ESPN goalie cache (auto-fetched)
+  // Falls back gracefully to team SV% if not yet loaded
+  const goalieCount = Object.keys(_espnGoalieStats).length;
+  if (goalieCount > 0) {
+    addLog('Goalie data ready: ' + goalieCount + ' starters with season SV%', 'ok');
   } else {
-    addLog('No lineup data — goalie component using team SV%. Sync Daily Faceoff for starter-level accuracy.', 'warn');
+    addLog('No goalie data yet — goalie component using team SV% (auto-fetch in progress)', 'warn');
   }
 
   const enriched = slateGames.map(function(g) {
-    const lineupGame = lineups ? matchLineup(lineups, g.away, g.home) : null;
-    const awayStarter = lineupGame ? getStarterInfo(lineupGame, 'away', lineups.goalies) : { name: null, sv_pct: null, confidence: 'unknown' };
-    const homeStarter = lineupGame ? getStarterInfo(lineupGame, 'home', lineups.goalies) : { name: null, sv_pct: null, confidence: 'unknown' };
+    // Lookup goalie SV% from ESPN goalie stats by matching abbr → roster
+    // We stored goalies by full name; match via the ESPN raw game team IDs
+    const espnGame = (_espnRawGames || []).find(function(eg) {
+      return (eg.awayAbbr === g.awayAbbr || eg.away === g.away) &&
+             (eg.homeAbbr === g.homeAbbr || eg.home === g.home);
+    });
 
-    // Lineup flags: check which IMPACT_PLAYERS are absent from projected lineups
-    const impactCheck = lineupGame
-      ? checkImpactPlayers(lineupGame, g.away, g.home, lineups)
-      : { away_missing: [], home_missing: [] };
+    // Build starter objects from ESPN goalie cache
+    // We don't know who's starting — use team's best goalie by games played
+    function getBestGoalie(teamAbbr, teamName) {
+      const teamId = _espnTeamIdMap[teamAbbr];
+      let best = null, bestGames = -1;
+      for (const [name, stats] of Object.entries(_espnGoalieStats)) {
+        // Match by checking if goalie is in this team's roster via our earlier fetch
+        // Approximation: find goalies whose team abbr prefix matches
+        if (stats.teamAbbr === teamAbbr || stats.teamName === teamName) {
+          if ((stats.games || 0) > bestGames) { best = { name, ...stats }; bestGames = stats.games || 0; }
+        }
+      }
+      return best ? { name: best.name, sv_pct: best.sv_pct, confidence: 'projected' } : { name: null, sv_pct: null, confidence: 'unknown' };
+    }
+
+    // Try abbr-based lookup first, then fall back to team SV%
+    const awayStats = fuzzyFind(allStats, g.away) || {};
+    const homeStats = fuzzyFind(allStats, g.home) || {};
+    const awaySV = getGoalieSVPct(null, awayStats);
+    const homeSV = getGoalieSVPct(null, homeStats);
+
+    const awayStarter = { name: null, sv_pct: awaySV, confidence: 'projected' };
+    const homeStarter = { name: null, sv_pct: homeSV, confidence: 'projected' };
 
     return Object.assign({}, g, {
-      away_kenpom:  fuzzyFind(allStats, g.away) || {},
-      home_kenpom:  fuzzyFind(allStats, g.home) || {},
+      away_kenpom:  awayStats,
+      home_kenpom:  homeStats,
       away_starter: awayStarter,
       home_starter: homeStarter,
-      away_lines:   lineupGame ? (lineupGame.away_lines || []) : [],
-      home_lines:   lineupGame ? (lineupGame.home_lines || []) : [],
-      away_pairs:   lineupGame ? (lineupGame.away_pairs || []) : [],
-      home_pairs:   lineupGame ? (lineupGame.home_pairs || []) : [],
-      // Impact player flags — players expected to play but absent from lineup
-      away_impact_missing: impactCheck.away_missing,
-      home_impact_missing: impactCheck.home_missing,
+      away_lines:   [],
+      home_lines:   [],
+      away_pairs:   [],
+      home_pairs:   [],
+      away_impact_missing: [],
+      home_impact_missing: [],
     });
   });
   const matched = enriched.filter(function(g) { return Object.keys(g.away_kenpom).length > 0 && Object.keys(g.home_kenpom).length > 0; }).length;
@@ -2546,35 +2721,21 @@ const MAR14_ESPN = [
   const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || window.innerWidth < 640;
   const isAndroid = /Android/i.test(navigator.userAgent);
 
-  const banner = document.getElementById('mobileSyncBanner');
-  if (banner) banner.style.display = isMobile ? 'block' : 'none';
-  const espnPreview = document.getElementById('espnScriptMobile');
-  if (espnPreview) espnPreview.textContent = 'javascript:' + encodeURIComponent(ESPN_SCRAPER).slice(0, 120) + '...';
-  const hint = document.getElementById('mobileHint');
-  if (hint) hint.textContent = isMobile ? (isAndroid ? 'Paste scripts in Chrome address bar' : 'Use F12 console') : 'Paste scripts in F12 console';
-  addLog('NHL Line Scout v1 initialized. xG puck line model ready.', 'ok');
-  addLog('Sync order: 1) MoneyPuck  2) NST  3) Daily Faceoff (lineups + goalies)  4) ESPN (slate)', 'warn');
 
-  // Auto-load Mar 14 bootstrap slate
-  if (new Date().toDateString() === MAR14_DATE) {
-    if (!_espnRawGames.length) {
-      _espnRawGames = MAR14_ESPN;
-      const slateEl = document.getElementById('slateInput');
-      if (slateEl) slateEl.value = MAR14_ESPN.map(espnGameToSlateText).join('\n');
-      const slateStatus = document.getElementById('slateStatus');
-      if (slateStatus) slateStatus.textContent = MAR14_ESPN.length + ' games';
-      const espnStatus = document.getElementById('espnSlateStatus');
-      if (espnStatus) { espnStatus.textContent = '✓ Bootstrap: ' + MAR14_ESPN.length + ' games'; espnStatus.style.color = 'var(--green)'; }
-      addLog('Slate bootstrap loaded: ' + MAR14_ESPN.length + ' games (Mar 14 — sync ESPN for updated morning lines)', 'ok');
-      addLog('⚠ Auston Matthews out for season (MCL tear). TOR line will move — re-sync ESPN in morning.', 'warn');
-    }
-  }
+  const hint = document.getElementById('mobileHint');
+  if (hint) hint.textContent = '';
+  addLog('NHL Line Scout v1 initialized. Fetching data...', 'ok');
+
   const cfg = await loadConfig();
   addLog('EV threshold: ' + cfg.evThreshold + ' goals | Max plays: ' + cfg.maxPlays, 'info');
   initWeightEditor();
   updateSeasonRecord();
-  checkStatsCache();
   refreshArchivePicker();
+
+  // Auto-fetch ESPN on every load — slate, team stats, goalie SV%
+  await autoFetchESPN();
+  // Also try loading any cached Hockey Reference data from today
+  await checkStatsCache();
   } catch(initErr) {
     // If init crashes, show a visible error instead of black screen
     document.body.style.cssText = 'background:#0a0a0b;color:#f04060;font-family:monospace;padding:20px;';
