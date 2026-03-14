@@ -1742,8 +1742,8 @@ async function callModelAPI(cfg, today, slateGames) {
     + '2. analysis: one sharp sentence on why model diverges from market — explicitly name the starting goalies and any missing impact players\n'
     + '3. nhl_edge: {xg_swing, shot_quality_swing, goalie_swing, pp_swing, dominant_factor, ml_lean_rationale, lineup_note}\n\n'
     + 'Also write emailContent: plain-text morning digest (3-5 sentences, EV plays bolded with **, mention key goalies by name)\n\n'
-    + 'Return ONLY compact JSON:\n'
-    + '{"analyses":{"GAMEID":{"key_factors":["f1","f2"],"analysis":"...", "nhl_edge":{"xg_swing":0,"shot_quality_swing":0,"goalie_swing":0,"pp_swing":0,"dominant_factor":"Goalie","ml_lean_rationale":"...","lineup_note":"..."}}},"emailContent":"..."}';
+    + 'Use AWAY@HOME abbreviation as key for each game (e.g. "ANA@OTT", "NYR@MIN"). Return ONLY valid compact JSON, no markdown fences:\n'
+    + '{"analyses":{"ANA@OTT":{"key_factors":["f1","f2"],"analysis":"...", "nhl_edge":{"xg_swing":0,"shot_quality_swing":0,"goalie_swing":0,"pp_swing":0,"dominant_factor":"Goalie","ml_lean_rationale":"...","lineup_note":"..."}}},"emailContent":"..."}';
 
   addLog('Sending analysis prompt (' + prompt.length + ' chars)...', 'info');
 
