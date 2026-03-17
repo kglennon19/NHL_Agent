@@ -1434,19 +1434,28 @@ function saveApiKey(){
 
 function computeSpread(g, weights) {
   // g.away_kenpom / g.home_kenpom = merged ESPN + optional Hockey Reference stats
-  // g.away_starter / g.home_starter = { name, sv_pct } from ESPN goalie API
+  // g.away_starter / g.home_starter = { name, sv_pct, confidence } from ESPN probables API
+  //
+  // Formula v2 — research-calibrated values:
+  //   xGF% scaling:  0.055 goals per 1% (down from 0.08, avoids over-weighting)
+  //   Home ice:      0.28 goals (empirical mean 2006-present, up from 0.22)
+  //   B2B:           0.15 goals win probability shift (up from 0.10)
+  //   Goalie shots:  28.5/game, sv% diff capped at ±3% to suppress noise
+  //   HDCF%:         0.025 goals per 1% (not 0.05 — xGF% already encodes shot quality)
+  //   PDO:           active regression adjustment (not just a flag)
+  //                  excess PDO above 100 = fade by 0.025 goals per point, capped ±0.30
+
   const a = g.away_kenpom || {}, h = g.home_kenpom || {};
   const wt = weights || {};
   const w = function(key) { return ((wt[key] && wt[key].value) || 15) / 100; };
 
-  // Determine fav/dog — prefer HR xGF%, fall back to ESPN GF/GA rate
-  // Use GF per game differential as xGF proxy when HR not synced
+  // ── xGF% proxy ──────────────────────────────────────────────────
+  // Prefer HR 5v5 score-adjusted xGF%; fall back to ESPN GF-rate
   function xgfProxy(stats) {
     if (stats.xgf_pct != null) return parseFloat(stats.xgf_pct);
-    // ESPN fallback: GF rate vs league avg 3.0
     const gf = parseFloat(stats.gf_per_game) || 3.0;
     const ga = parseFloat(stats.ga_per_game) || 3.0;
-    return gf > 0 || ga > 0 ? (gf / (gf + ga)) * 100 : 50;
+    return (gf + ga) > 0 ? (gf / (gf + ga)) * 100 : 50;
   }
 
   const aXGF = xgfProxy(a), hXGF = xgfProxy(h);
@@ -1455,60 +1464,91 @@ function computeSpread(g, weights) {
   const favStarter = favIsHome ? (g.home_starter || {}) : (g.away_starter || {});
   const dogStarter = favIsHome ? (g.away_starter || {}) : (g.home_starter || {});
 
-  // 1. Base — xGF% or GF-rate differential scaled to goals
+  // ── 1. Base — score-adjusted xGF% differential ──────────────────
+  // Research: xGF% is the best team-level predictor of future outcomes.
+  // Scaling: ~0.055 goals per 1% xGF gap (league range ~44-56%, elite gap ~6-8%)
   const xgf_diff = xgfProxy(fav) - xgfProxy(dog);
-  const base = xgf_diff * 0.08;
+  const base = xgf_diff * 0.055;
 
-  // 2. Shot quality — HDCF% if HR synced, else shooting% differential as proxy
+  // ── 2. Shot quality — HDCF% independent contribution ────────────
+  // xGF% already incorporates shot location/quality; HDCF% adds ~20% marginal signal.
+  // So we scale to 0.025/% (not 0.05 — that double-counted with base).
+  // ESPN fallback: shooting% is a weak proxy but directionally correct.
   let shot_quality = 0;
   if (fav.hdcf_pct != null && dog.hdcf_pct != null) {
     const hdcf_diff = parseFloat(fav.hdcf_pct) - parseFloat(dog.hdcf_pct);
-    shot_quality = hdcf_diff * 0.05;
+    shot_quality = hdcf_diff * 0.025;
   } else {
-    // ESPN fallback: shooting% differential (league avg ~10%)
     const fav_sh = parseFloat(fav.sh_pct) || 10, dog_sh = parseFloat(dog.sh_pct) || 10;
-    shot_quality = (fav_sh - dog_sh) * 0.02;
+    shot_quality = (fav_sh - dog_sh) * 0.010;  // minimal weight when falling back to ESPN
   }
 
-  // 3. Goalie — individual SV% from ESPN goalie API, fall back to team SV%
-  const fav_sv = parseFloat(favStarter.sv_pct) || parseFloat(fav.sv_pct) || 0.910;
-  const dog_sv = parseFloat(dogStarter.sv_pct) || parseFloat(dog.sv_pct) || 0.910;
+  // ── 3. Goalie — individual starter SV%, capped to suppress noise ─
+  // 28.5 shots/game is the empirical NHL average.
+  // Cap sv% differential at ±3% — beyond that is likely sample noise or PDO.
+  // Individual starter SV% from ESPN probables API is used when available.
+  const fav_sv_raw = parseFloat(favStarter.sv_pct) || parseFloat(fav.sv_pct) || 0.910;
+  const dog_sv_raw = parseFloat(dogStarter.sv_pct) || parseFloat(dog.sv_pct) || 0.910;
+  const sv_diff = Math.max(-0.030, Math.min(0.030, fav_sv_raw - dog_sv_raw));
+  const goalie_edge = sv_diff * 28.5;
   const usingStarterSV = !!(favStarter.sv_pct || dogStarter.sv_pct);
-  const goalie_edge = (fav_sv - dog_sv) * 30;
 
-  // 4. Power play edge — HR PP%/PK% preferred, ESPN PP goals/game as fallback
+  // ── 4. Power play edge ───────────────────────────────────────────
+  // Combined PP% offense + PK% defense.
+  // Each 1% PP differential ≈ 0.018 goals/game; scale by 0.04 combined.
+  // ESPN fallback: PP goals per game is a decent proxy.
   let pp_edge = 0;
   if (fav.pp_pct != null && dog.pp_pct != null) {
     const fav_pp = parseFloat(fav.pp_pct), dog_pp = parseFloat(dog.pp_pct);
     const fav_pk = parseFloat(fav.pk_pct) || 80, dog_pk = parseFloat(dog.pk_pct) || 80;
     pp_edge = ((fav_pp - dog_pp) + (fav_pk - dog_pk)) * 0.04;
   } else {
-    // ESPN fallback: PP goals per game differential (league avg ~0.5/game)
     const fav_ppg = parseFloat(fav.pp_goals_per_game) || 0.5;
     const dog_ppg = parseFloat(dog.pp_goals_per_game) || 0.5;
-    pp_edge = (fav_ppg - dog_ppg) * 0.3;
+    pp_edge = (fav_ppg - dog_ppg) * 0.15;  // reduced weight on ESPN proxy (was 0.3)
   }
 
-  // 5. Recency — xGF% trend
+  // ── 5. Recency — rolling xGF% trend ─────────────────────────────
+  // NHL-specific: momentum IS predictive (unlike NBA where it isn't).
+  // Compare recent 10-game xGF% vs season xGF%, cap ±0.25 goals.
   function recencyBoost(stats) {
     const season = parseFloat(stats.xgf_pct)     || 50;
     const recent = parseFloat(stats.xgf_pct_5v5) || 50;
-    return Math.max(-0.3, Math.min(0.3, (recent - season) * 0.04));
+    return Math.max(-0.25, Math.min(0.25, (recent - season) * 0.04));
   }
   const recency = recencyBoost(fav) - recencyBoost(dog);
 
-  // 6. Home ice — 0.22 goals (research-backed, higher than initial 0.15)
+  // ── 6. Home ice — 0.28 goals ─────────────────────────────────────
+  // Empirical value: 0.28 goals/game advantage since 2006 (boydsbets, NSS research).
+  // Home win% ≈ 54.5%, translating to ~0.28 goal differential for equal teams.
+  // Playoff home ice: smaller effect, but retain it (teams earned it).
   const isPlayoffs = !!(g.event && (g.event.includes('Playoff') || g.event.includes('Stanley Cup') || g.event.includes('Final')));
-  const site = (g.neutral_site || g.neutral || isPlayoffs) ? 0 : (favIsHome ? 0.22 : -0.22);
+  const site = (g.neutral_site || g.neutral) ? 0 : (favIsHome ? 0.28 : -0.28);
 
-  // 7. Context — B2B fatigue (now real from ESPN schedule data, not stubbed)
+  // ── 7. Context — B2B fatigue + road trip ─────────────────────────
+  // Research (theScore): B2B = ~5% win probability shift = ~0.15 goals.
+  // Road trip depth: still 0.04/game beyond game 3.
   const away_b2b = !!(g.away_b2b), home_b2b = !!(g.home_b2b);
-  const b2b_adj = (away_b2b ? -0.10 : 0) + (home_b2b ? 0.10 : 0); // road B2B hurts away, helps home
-  // road trip depth penalty (>3 games into road trip)
+  const b2b_adj = (away_b2b ? -0.15 : 0) + (home_b2b ? 0.15 : 0);
   const road_trip_penalty = Math.max(0, ((g.away_road_trip_games || 0) - 3)) * -0.04;
   const context_adj = b2b_adj + road_trip_penalty;
 
-  // Weight normalization
+  // ── 8. PDO regression — active adjustment ────────────────────────
+  // PDO = sh% + sv% (centered at 100). Teams above 102 are over-performing luck.
+  // Research: regression toward 100 is reliable over remaining season.
+  // Per-game impact: 0.025 goals per PDO point above 100, capped ±0.30.
+  // Applied AGAINST the team benefiting from unsustainable PDO.
+  const fav_pdo = parseFloat(fav.pdo) || 100, dog_pdo = parseFloat(dog.pdo) || 100;
+  function pdoRegression(pdo) {
+    const excess = pdo - 100.0;
+    if (Math.abs(excess) < 1.5) return 0;  // within noise
+    return Math.max(-0.30, Math.min(0.30, -excess * 0.025));
+  }
+  // Positive PDO for fav = fade fav (negative adj); positive PDO for dog = helps fav
+  const pdo_adj = pdoRegression(fav_pdo) - pdoRegression(dog_pdo);
+  const pdoFlag = fav_pdo > 102 ? 'fav_high_pdo' : dog_pdo > 102 ? 'dog_high_pdo' : null;
+
+  // ── Weight normalization ──────────────────────────────────────────
   const wXG = w('xg'), wSQ = w('shotquality'), wG = w('goalie'), wPP = w('powerplay');
   const wRec = w('recency'), wCtx = w('context');
 
@@ -1518,11 +1558,8 @@ function computeSpread(g, weights) {
             + pp_edge      * (wPP  / 0.15)
             + recency      * (wRec / 0.10)
             + site
+            + pdo_adj                         // PDO regression applied directly (not weight-gated)
             + context_adj  * (wCtx / 0.10);
-
-  // PDO regression flag
-  const fav_pdo = parseFloat(fav.pdo) || 100, dog_pdo = parseFloat(dog.pdo) || 100;
-  const pdoFlag = fav_pdo > 102 ? 'fav_high_pdo' : dog_pdo > 102 ? 'dog_high_pdo' : null;
 
   // Parse market puck line
   let mktNum = null, mktFavName = null;
@@ -1692,8 +1729,8 @@ async function callModelAPI(cfg, today, slateGames) {
         away_hdcf: ak.hdcf_pct != null ? ak.hdcf_pct : (ak.sh_pct != null ? ak.sh_pct : null),
         home_hdcf: hk.hdcf_pct != null ? hk.hdcf_pct : (hk.sh_pct != null ? hk.sh_pct : null),
         away_sv:   ak.sv_pct,   home_sv:   hk.sv_pct,
-        away_pp:   ak.pp_pct   != null ? ak.pp_pct   : (ak.pp_goals_per_game != null ? +(ak.pp_goals_per_game*100/0.5).toFixed(1) : null),
-        home_pp:   hk.pp_pct   != null ? hk.pp_pct   : (hk.pp_goals_per_game != null ? +(hk.pp_goals_per_game*100/0.5).toFixed(1) : null),
+        away_pp:   ak.pp_pct   != null ? ak.pp_pct   : null,  // only show real PP% from HR
+        home_pp:   hk.pp_pct   != null ? hk.pp_pct   : null,
         away_pk:   ak.pk_pct,   home_pk:   hk.pk_pct,
         away_pdo:  ak.pdo,      home_pdo:  hk.pdo,
         away_cf:   ak.cf_pct,   home_cf:   hk.cf_pct,
@@ -1749,8 +1786,9 @@ async function callModelAPI(cfg, today, slateGames) {
     + '- ML lean = moneyline preference independent of puck line edge.\n'
     + '- GoalieSV=STARTER means individual starter SV% is in the formula (more accurate). TEAM_BLEND means we fell back to season team SV%.\n'
     + '- ImpactMissing = impact players absent from projected lineup for that team. This is a significant flag — address it in analysis.\n'
-    + '- PDO > 102 = unsustainable sh%+sv% combo, regression likely. Flag this prominently.\n'
-    + '- Site component already includes home ice (0.22g) and B2B fatigue where known.\n\n'
+    + '- PDO > 102 = unsustainable sh%+sv%. Formula v2 ACTIVELY fades these teams (-0.025g per PDO point above 100). Flag this.\n'
+    + '- Home ice = 0.28g (empirical 2006-present research). B2B = 0.15g shift. Both in site/context components.\n'
+    + '- HDCF% contribution is intentionally small (0.025/%) — xGF% already encodes shot quality. Double-counting removed.\n\n'
     + 'For each game provide:\n'
     + '1. key_factors: array of 2-3 strings — prioritize goalie matchup, impact player absences, and PDO regression if present\n'
     + '2. analysis: one sharp sentence on why model diverges from market — explicitly name the starting goalies and any missing impact players\n'
@@ -2391,7 +2429,7 @@ async function runPostmortem() {
         '  VERDICT: IMPROVED = MAE dropped >0.015 goals, DEGRADED = MAE rose >0.015 goals, NEUTRAL = within 0.015 goals, pending = not enough games yet\n' +
         changelogForPrompt.join('\n') + '\n\n' : '') +
       'CURRENT WEIGHTS: ' + currentWeights + '\n\n' +
-      'NHL MODEL CONTEXT: xg=xGF% share edge (base), shot_quality=HDCF% edge, goalie=SV% differential × 30shots, powerplay=PP%+PK% edge, recency=5v5 xGF% hot/cold trend, context=B2B/rest.\n' +
+      'NHL MODEL v2 CONTEXT: xg=xGF% share edge (0.055/%), shot_quality=HDCF% marginal edge (0.025/%), goalie=SV% diff × 28.5 shots (capped ±3%), powerplay=PP%+PK% combined edge (0.04/%), recency=5v5 xGF% trend, context=B2B(0.15g)/rest, pdo_adj=active PDO regression (-0.025g per excess PDO point).\n' +
       'Diagnose: which components are systematically biased? Show your reasoning from the Pearson correlations and daily trend.\n' +
       'Return ONLY this JSON:\n' +
       '{"summary":"2-3 sentence diagnosis referencing specific stats",' +
