@@ -368,11 +368,11 @@
       <div style="font-size:11px;color:var(--text2);margin-bottom:10px;line-height:1.6">Every weight change is logged with the MAE before and after, so post-mortem analysis can identify if a recent change caused regression.</div>
       <div id="weightChangelogContainer"><div style="font-size:11px;color:var(--text3)">No changes logged yet.</div></div>
       <div class="divider"></div>
-      <div class="card-title" style="margin-bottom:12px">Standalone Mode (outside claude.ai)</div>
-      <div style="font-size:11px;font-family:var(--mono);color:var(--text3);margin-bottom:10px;line-height:1.7">API key stored in localStorage only — never transmitted except to api.anthropic.com.</div>
+      <div class="card-title" style="margin-bottom:8px">API Key <span style="font-size:10px;font-weight:400;color:var(--green)">(optional)</span></div>
+      <div style="font-size:11px;font-family:var(--mono);color:var(--text3);margin-bottom:10px;line-height:1.7">The model runs fully free — no API key needed. The formula computes all picks and derives key factors automatically.<br>An Anthropic API key is only needed if you want AI-written game narratives (future feature).</div>
       <div class="config-row">
         <span class="config-label">Anthropic API key</span>
-        <input type="password" class="config-input" id="apiKey" placeholder="sk-ant-..." autocomplete="off">
+        <input type="password" class="config-input" id="apiKey" placeholder="Not required — formula-only mode" autocomplete="off">
         <button class="btn-sm" onclick="saveApiKey()">Save</button>
       </div>
       <div style="font-size:10px;font-family:var(--mono);color:var(--text3);margin-top:4px" id="apiKeyStatus"></div>
@@ -1373,9 +1373,9 @@ async function runAgent(slateOverride) {
       addLog('Manual slate: ' + slateGames.length + ' games', 'info');
     }
 
-    document.getElementById('gamesContainer').innerHTML = '<div class="empty pulsing"><div class="empty-icon">⚡</div>Computing spreads...<br>Fetching analysis from model...</div>';
+    document.getElementById('gamesContainer').innerHTML = '<div class="empty pulsing"><div class="empty-icon">⚡</div>Computing spreads...</div>';
 
-    const result=await callModelAPI(cfg,today,slateGames);
+    const result=await formulaOnlyMode(cfg,today,slateGames);
 
     state.todayGames=result.games||[];
     state.todayPicks=result.picks||[];
@@ -1611,6 +1611,190 @@ function evVerdict(computed, evThreshold) {
     else if (modelNum < (mktNum || 0)) verdict = 'EV_DOG';
   }
   return verdict;
+}
+
+
+// ─── FORMULA-ONLY RUN (no API key required) ──────────────────────
+// Runs the full xG model and derives key factors directly from formula
+// components. No Claude API call. Zero cost.
+async function formulaOnlyMode(cfg, today, slateGames) {
+
+  // Step 1: Load stats (auto-fetched from ESPN)
+  let allStats = await getNHLStats();
+  if (!allStats || Object.keys(allStats).length === 0) {
+    addLog('Stats not ready — running ESPN auto-fetch now...', 'warn');
+    await autoFetchESPN();
+    allStats = _kenpomMemCache;
+  }
+  if (!allStats || Object.keys(allStats).length === 0) {
+    throw new Error('Failed to load team stats. Check connection and try Refresh Now on the Game Slate tab.');
+  }
+
+  const goalieCount = Object.keys(_espnGoalieStats).length;
+  if (goalieCount > 0) {
+    addLog('Goalie data ready: ' + goalieCount + ' starters with season SV%', 'ok');
+  } else {
+    addLog('No goalie data — goalie component using team SV%', 'warn');
+  }
+
+  // Step 2: Enrich games with stats + starters
+  const enriched = slateGames.map(function(g) {
+    const espnGame = (_espnRawGames || []).find(function(eg) {
+      return eg.awayAbbr === g.awayAbbr && eg.homeAbbr === g.homeAbbr;
+    });
+    function buildStarter(prob, teamStats) {
+      if (!prob || !prob.name) return { name: null, sv_pct: teamStats.sv_pct || null, confidence: 'unknown' };
+      const gs = _espnGoalieStats[prob.name];
+      const sv_pct = gs ? gs.sv_pct : (teamStats.sv_pct || null);
+      return { name: prob.name, sv_pct: sv_pct, confidence: prob.confidence || 'projected' };
+    }
+    const awayStats = fuzzyFind(allStats, g.away) || {};
+    const homeStats = fuzzyFind(allStats, g.home) || {};
+    const awayStarter = buildStarter(espnGame && espnGame.awayProb, awayStats);
+    const homeStarter = buildStarter(espnGame && espnGame.homeProb, homeStats);
+    return Object.assign({}, g, {
+      away_kenpom: awayStats, home_kenpom: homeStats,
+      away_starter: awayStarter, home_starter: homeStarter,
+      away_lines: [], home_lines: [], away_pairs: [], home_pairs: [],
+      away_impact_missing: [], home_impact_missing: [],
+    });
+  });
+
+  const matched = enriched.filter(function(g) {
+    return Object.keys(g.away_kenpom).length > 0 && Object.keys(g.home_kenpom).length > 0;
+  }).length;
+  addLog('NHL stats matched ' + matched + '/' + slateGames.length + ' games', matched === slateGames.length ? 'ok' : 'warn');
+
+  // Step 3: Compute formula
+  const computed = enriched.map(function(g, i) {
+    try { return computeSpread(g, cfg.weights); }
+    catch(e) { addLog('Compute error ' + g.away + ': ' + e.message, 'warn'); return null; }
+  });
+
+  const evThreshold = parseFloat(cfg.evThreshold) || 0.08;
+
+  // Step 4: Build preGames with formula-derived key factors
+  const preGames = enriched.map(function(g, i) {
+    const c = computed[i];
+    if (!c) return null;
+    const verdict = evVerdict(c, evThreshold);
+    const ak = g.away_kenpom, hk = g.home_kenpom;
+
+    // Derive key factors from formula components — no API needed
+    const comps = c.components || {};
+    const factors = [];
+
+    // Identify dominant component
+    const compAbs = {
+      xG: Math.abs(comps.base || 0),
+      'Shot Quality': Math.abs(comps.shot_quality || 0),
+      Goalie: Math.abs(comps.goalie || 0),
+      'Power Play': Math.abs(comps.powerplay || 0),
+      Recency: Math.abs(comps.recency || 0),
+      'Home Ice': Math.abs(comps.site || 0),
+    };
+    const dominant = Object.keys(compAbs).reduce(function(a, b) { return compAbs[a] > compAbs[b] ? a : b; });
+    factors.push('Driver: ' + dominant);
+
+    // Goalie matchup
+    if (c.recencyDetail && c.recencyDetail.fav_starter) {
+      const favG = c.recencyDetail.fav_starter, favSV = c.recencyDetail.fav_sv;
+      const dogG = c.recencyDetail.dog_starter, dogSV = c.recencyDetail.dog_sv;
+      if (favG && dogG) {
+        factors.push(favG + ' (' + favSV + '%) vs ' + dogG + ' (' + dogSV + '%)');
+      } else {
+        factors.push('SV%: ' + favSV + '% vs ' + dogSV + '%');
+      }
+    }
+
+    // PDO flag
+    if (c.pdoFlag === 'fav_high_pdo') factors.push('⚠ Fav PDO elevated — regression risk');
+    else if (c.pdoFlag === 'dog_high_pdo') factors.push('⚠ Dog PDO elevated — potential value');
+
+    // xGF% context (when HR synced)
+    if (ak.xgf_pct != null && hk.xgf_pct != null) {
+      const favXGF = c.favIsHome ? hk.xgf_pct : ak.xgf_pct;
+      const dogXGF = c.favIsHome ? ak.xgf_pct : hk.xgf_pct;
+      factors.push('xGF%: ' + parseFloat(favXGF).toFixed(1) + '% vs ' + parseFloat(dogXGF).toFixed(1) + '%');
+    }
+
+    // Build a compact formula-based analysis sentence
+    const edgeDir = verdict === 'EV_FAV' ? 'lay the favorite' : verdict === 'EV_DOG' ? 'take the dog' : 'pass';
+    const goalieNote = c.recencyDetail && c.recencyDetail.fav_starter
+      ? c.recencyDetail.fav_starter + ' (' + c.recencyDetail.fav_sv + '%) starts vs '
+        + (c.recencyDetail.dog_starter || 'unknown') + ' (' + c.recencyDetail.dog_sv + '%).'
+      : '';
+    const pdoNote = c.pdoFlag ? ' PDO regression risk for ' + (c.pdoFlag === 'fav_high_pdo' ? 'favorite' : 'dog') + '.' : '';
+    const analysis = 'Formula: ' + dominant + ' drives ' + Math.abs(comps[dominant.toLowerCase().replace(' ','_')] || 0).toFixed(2)
+      + 'g edge — ' + edgeDir + ' at ' + c.edge.toFixed(2) + 'g vs market. ' + goalieNote + pdoNote;
+
+    return {
+      id: g.id || ('g' + (i+1)),
+      away: g.away, home: g.home,
+      awayAbbr: g.awayAbbr || '', homeAbbr: g.homeAbbr || '',
+      code: ((g.awayAbbr||'').toUpperCase() + '@' + (g.homeAbbr||'').toUpperCase()),
+      away_record: g.awayRecord || '', home_record: g.homeRecord || '',
+      event: g.event, time: g.time,
+      neutral_site: g.neutral_site || g.neutral || false,
+      isPlayoffs: g.isPlayoffs || false,
+      market_spread: g.market_spread, market_total: g.market_total,
+      model_spread: c.modelSpread, ml_lean: c.ml_lean, ml_confidence: c.ml_confidence,
+      pdo_flag: c.pdoFlag, using_starter_sv: c.usingStarterSV,
+      edge_pts: Math.abs(c.edge), verdict: verdict,
+      play: verdict !== 'PASS'
+        ? (verdict === 'EV_DOG'
+            ? (c.favIsHome ? g.away : g.home) + ' +1.5'
+            : c.favAbbr + ' -1.5')
+        : null,
+      components: c.components,
+      away_starter: g.away_starter, home_starter: g.home_starter,
+      away_impact_missing: [], home_impact_missing: [],
+      // Formula-derived analysis (no API needed)
+      key_factors: factors,
+      analysis: analysis,
+      nhl_edge: { dominant_factor: dominant, lineup_note: '' },
+      stats: {
+        away_xgf:  ak.xgf_pct  != null ? ak.xgf_pct  : (ak.gf_per_game && ak.ga_per_game ? +(ak.gf_per_game/(ak.gf_per_game+ak.ga_per_game)*100).toFixed(1) : null),
+        home_xgf:  hk.xgf_pct  != null ? hk.xgf_pct  : (hk.gf_per_game && hk.ga_per_game ? +(hk.gf_per_game/(hk.gf_per_game+hk.ga_per_game)*100).toFixed(1) : null),
+        away_hdcf: ak.hdcf_pct != null ? ak.hdcf_pct : (ak.sh_pct != null ? ak.sh_pct : null),
+        home_hdcf: hk.hdcf_pct != null ? hk.hdcf_pct : (hk.sh_pct != null ? hk.sh_pct : null),
+        away_sv: ak.sv_pct, home_sv: hk.sv_pct,
+        away_pp: ak.pp_pct, home_pp: hk.pp_pct,
+        away_pk: ak.pk_pct, home_pk: hk.pk_pct,
+        away_pdo: ak.pdo, home_pdo: hk.pdo,
+        away_cf: ak.cf_pct, home_cf: hk.cf_pct,
+        away_xgf5v5: ak.xgf_pct_5v5, home_xgf5v5: hk.xgf_pct_5v5,
+        away_gf_pg: ak.gf_per_game, home_gf_pg: hk.gf_per_game,
+        away_ga_pg: ak.ga_per_game, home_ga_pg: hk.ga_per_game,
+        using_espn_proxy: ak.xgf_pct == null,
+      },
+    };
+  }).filter(Boolean);
+
+  const evGames = preGames.filter(function(g) { return g.verdict !== 'PASS'; })
+    .sort(function(a, b) { return b.edge_pts - a.edge_pts; })
+    .slice(0, cfg.maxPlays || 20);
+
+  addLog('Formula-only mode: ' + preGames.length + ' games, ' + evGames.length + ' EV plays — no API call needed', 'ok');
+
+  const finalPicks = evGames.map(function(g) {
+    return {
+      game_id: g.id, play: g.play,
+      away: g.away, home: g.home, time: g.time || 'TBD',
+      market_line: g.market_spread, model_line: g.model_spread,
+      edge: g.edge_pts, ml_lean: g.ml_lean, ml_confidence: g.ml_confidence,
+      verdict: g.verdict,
+      confidence: g.edge_pts >= 0.25 ? 'HIGH' : g.edge_pts >= 0.12 ? 'MED' : 'LOW',
+      rationale: g.analysis || '',
+      key_factors: g.key_factors || [],
+      lineup_note: '',
+      dominant_factor: (g.nhl_edge && g.nhl_edge.dominant_factor) || '',
+      away_starter: g.away_starter, home_starter: g.home_starter,
+      away_impact_missing: [], home_impact_missing: [],
+    };
+  });
+
+  return { games: preGames, picks: finalPicks, emailContent: '' };
 }
 
 async function callModelAPI(cfg, today, slateGames) {
@@ -2816,7 +3000,7 @@ const MAR14_ESPN = [
   } catch(initErr) {
     // If init crashes, show a visible error instead of black screen
     document.body.style.cssText = 'background:#0a0a0b;color:#f04060;font-family:monospace;padding:20px;';
-    document.body.innerHTML = '<h2 style="color:#f04060;margin-bottom:16px">⚠ Init Error</h2><pre style="font-size:12px;line-height:1.7;white-space:pre-wrap">' + initErr.stack + '</pre><p style="margin-top:16px;color:#9090a0;font-size:12px">Open this file in Claude.ai instead, or check Model Config → API key.</p>';
+    document.body.innerHTML = '<h2 style="color:#f04060;margin-bottom:16px">⚠ Init Error</h2><pre style="font-size:12px;line-height:1.7;white-space:pre-wrap">' + initErr.stack + '</pre><p style="margin-top:16px;color:#9090a0;font-size:12px">Try refreshing the page. If the error persists, check your internet connection.</p>';
   }
 })();
 </script>
