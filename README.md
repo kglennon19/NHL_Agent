@@ -1,51 +1,34 @@
-# NHL Line Scout — v1
+# NHL Line Scout — v2
 
-A single-file NHL puck line model. Runs entirely in the browser. No server, no build step.
+Single-file NHL puck line + totals betting model. Deploys to GitHub Pages.
 
-## Sync Order (run once per session, in this order)
+## What's New in v2
 
-| Step | Site | What it grabs |
-|------|------|---------------|
-| 1 | `moneypuck.com/teams.htm` | Team xGF%, HDCF%, SV%, PP%, PK%, PDO |
-| 2 | `naturalstattrick.com/teamtable.php` | 5v5 CF%, FF%, xGF% |
-| 3 | `dailyfaceoff.com/starting-goalies` | Confirmed starters, projected lines & D-pairs, impact player flags |
-| 4 | `espn.com/nhl/scoreboard` | Live puck lines, game slate, playoff flags |
+- **NHL API Tier 2 goalie scraper** — one paste on nhl.com pulls last-5 SV%, situational splits
+- **Totals model** — projects total goals, surfaces OVER/UNDER lean
+- **Formula recalibrated** — EV threshold 0.20g, goalie confidence discount, PDO seasonal scaling
+- **~1200 lines of dead code removed** — MoneyPuck/NST/DailyFaceoff stubs, MAR14 bootstrap, duplicate API path
 
-Open each site in Chrome, paste the generated console script (F12 → Console), data syncs back automatically via BroadcastChannel.
+## Deploy
 
-## Model Components
+1. Upload `index.html` to [kglennon19/NHL_Agent](https://github.com/kglennon19/NHL_Agent)
+2. Wait 30–60s for GitHub Pages to rebuild
+3. Hard reload in incognito: `Ctrl+Shift+R`
 
-| Weight | Component | Source |
-|--------|-----------|--------|
-| xg (25%) | xGF% share differential | MoneyPuck |
-| shotquality (20%) | HDCF% edge | MoneyPuck |
-| goalie (20%) | Starter SV% × 30 shots (falls back to team SV%) | Daily Faceoff + NST |
-| powerplay (15%) | PP% + PK% combined | MoneyPuck |
-| recency (10%) | 5v5 xGF% hot/cold trend | NST |
-| context (10%) | B2B fatigue, road trip depth | ESPN |
+## Data Tiers
 
-Home ice: +0.22 goals (research-backed). Zero for playoffs and neutral sites.
+| Tier | Source | User Action | Goalie Data |
+|------|--------|-------------|-------------|
+| 1 (auto) | ESPN API | None | Season SV% for confirmed starters |
+| 2 (paste) | NHL EDGE API | One paste on nhl.com | Last-5 SV%, 5v5 SV%, game logs |
+| Adv (paste) | Hockey Reference | One paste on hockey-reference.com | xGF%, CF%, HDCF%, PDO |
 
-## Lineup Intelligence
+## Formula v2 Changes
 
-Daily Faceoff sync provides:
-- **Confirmed starters** — starter name + confidence (confirmed / expected / unconfirmed) displayed on every game card
-- **Individual SV%** — starter-level save percentage replaces blended team SV% in the goalie formula when available
-- **Impact player flags** — 36 tracked players league-wide; absent players flagged with ⚠ on the game card and sent to the model in the analysis prompt
-
-## Output Per Game
-
-- **Model puck line** — xG formula output rounded to nearest 0.5
-- **Puck line edge** — model goals vs market ±1.5
-- **ML lean** — FAV / DOG / EVEN with HIGH / MED / LOW confidence (separate from puck line edge)
-- **PDO flag** — teams above 102 PDO tagged for regression risk
-- **Starter panel** — both goalies named with SV% and confirmation status
-- **Impact flags** — missing players highlighted per team
-
-## Training Loop
-
-Post-mortem analysis (Performance tab) computes Pearson correlation per component across all archived games, identifies systematic over/underweighting, and recommends weight adjustments. Weight changelog tracks MAE before/after every change.
-
-## Deployment
-
-Single `index.html`. Deploy to GitHub Pages — no dependencies beyond Google Fonts.
+- Default weights: xG 22%, Shot Quality 18%, **Goalie 28%**, PP 14%, Recency 10%, Context 8%
+- EV threshold: **0.20 goals** (was 1.5 — was discarding real edges)
+- Goalie confidence discount: 35% reduction for projected/unknown starters
+- PDO regression scaled by `(82 - games_played) / 82`
+- B2B: road 0.18g, home 0.08g (was flat 0.15g)
+- Totals: crossover scoring rates + goalie suppression model
+- ROI: blended puck line pricing (0.87 payout, not flat -110)
