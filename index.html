@@ -406,12 +406,19 @@ const state = { running: false, lastRun: null, todayGames: [], todayPicks: [], e
 
 // ─── WEIGHTS ────────────────────────────────────────────────────────
 const DEFAULT_WEIGHTS = {
-  xg:          { label: 'xG share differential (base)',       value: 22 },
-  shotquality: { label: 'High-danger chance edge (HDCF%)',    value: 18 },
-  goalie:      { label: 'Goalie SV% (starter, situational)',  value: 28 },
-  powerplay:   { label: 'PP% / PK% edge',                    value: 14 },
-  recency:     { label: 'Recency (last-10 xGF% momentum)',   value: 10 },
-  context:     { label: 'Context (B2B, rest, travel)',        value: 8  },
+  xg:          { label: 'xG share differential (base)',       value: 20 },
+  shotquality: { label: 'High-danger chance edge (HDCF%)',    value: 15 },
+  goalie:      { label: 'Goalie SV% (starter, situational)',  value: 22 },
+  gsax:        { label: 'GSAx (goals saved above expected)',  value: 8  },
+  powerplay:   { label: 'PP% / PK% edge',                    value: 12 },
+  recency:     { label: 'Recency (last-10 xGF% momentum)',   value: 8  },
+  rest:        { label: 'Rest advantage (days off)',          value: 5  },
+  context:     { label: 'Context (B2B, rest, travel)',        value: 6  },
+  divisional:  { label: 'Divisional compression',             value: 4  },
+  // Dormant — start at 0%, let post-mortem validate before activating
+  regression:  { label: 'Record-vs-expected regression',      value: 0  },
+  workload:    { label: 'Goalie workload fatigue',            value: 0  },
+  st_oppty:    { label: 'Special teams opportunity rate',     value: 0  },
 };
 
 // ─── STORAGE POLYFILL ───────────────────────────────────────────────
@@ -634,13 +641,31 @@ function buildNHLStatsCache() {
   for (const [abbr, t] of Object.entries(_espnTeamStats)) {
     const fullName = t.name || ESPN_TO_HR_NAME[abbr] || abbr;
     const hr = _hrAdvStats[fullName] || {};
+    const gamesPlayed = t.games || 1;
+    const gfPg = t.gf_pg || null;
+    const gaPg = t.ga_pg || null;
+    // Pythagorean expected win% (exponent 2.05 for hockey)
+    const pyth = (gfPg && gaPg && gfPg + gaPg > 0)
+      ? Math.pow(gfPg, 2.05) / (Math.pow(gfPg, 2.05) + Math.pow(gaPg, 2.05)) : null;
+    const actualWinPct = (t.wins != null && gamesPlayed > 0) ? t.wins / gamesPlayed : null;
+    // Pace: total shots per game (for + against) as proxy for game tempo
+    const shotsPace = (t.shots_for && t.shots_against && gamesPlayed > 0)
+      ? (t.shots_for + t.shots_against) / gamesPlayed : null;
     merged[fullName] = {
       sv_pct: t.sv_pct || null, sh_pct: t.sh_pct || null,
-      gf_per_game: t.gf_pg || null, ga_per_game: t.ga_pg || null,
+      gf_per_game: gfPg, ga_per_game: gaPg,
       pp_goals: t.pp_goals || null, shots_for: t.shots_for || null,
       shots_against: t.shots_against || null,
-      pp_goals_per_game: t.pp_goals && t.games ? t.pp_goals / t.games : null,
-      games: t.games || null, wins: t.wins || null, abbr: abbr,
+      pp_goals_per_game: t.pp_goals && gamesPlayed ? t.pp_goals / gamesPlayed : null,
+      games: gamesPlayed, wins: t.wins || null, abbr: abbr,
+      // Derived
+      win_pct: actualWinPct,
+      pyth_win_pct: pyth,
+      luck_delta: (actualWinPct != null && pyth != null) ? actualWinPct - pyth : null,
+      shots_pace: shotsPace,
+      shots_for_pg: t.shots_for && gamesPlayed ? t.shots_for / gamesPlayed : null,
+      shots_against_pg: t.shots_against && gamesPlayed ? t.shots_against / gamesPlayed : null,
+      // Hockey Reference advanced (optional)
       xgf_pct: hr.xgf_pct || null, cf_pct: hr.cf_pct || null,
       hdcf_pct: hr.hdcf_pct || null, pdo: hr.pdo || null,
       pp_pct: hr.pp_pct || null, pk_pct: hr.pk_pct || null,
@@ -988,13 +1013,24 @@ function showConsoleScript(boxId, label, siteUrl, script, statusEl, btn, btnText
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// CORE FORMULA v2
+// CORE FORMULA v3
+// Components: xG, shot quality, goalie SV%, GSAx, PP/PK, recency,
+//             rest, context (B2B/travel), divisional compression
+// Dormant:    regression, workload, ST opportunity rate
 // ═══════════════════════════════════════════════════════════════════
+
+// Division lookup for divisional compression
+const DIVISION_MAP = {
+  'ANA':'Pacific','CGY':'Pacific','EDM':'Pacific','LA':'Pacific','SJ':'Pacific','SEA':'Pacific','VAN':'Pacific','VGK':'Pacific',
+  'CHI':'Central','COL':'Central','DAL':'Central','MIN':'Central','NSH':'Central','STL':'Central','UTA':'Central','WPG':'Central',
+  'BOS':'Atlantic','BUF':'Atlantic','DET':'Atlantic','FLA':'Atlantic','MTL':'Atlantic','OTT':'Atlantic','TB':'Atlantic','TOR':'Atlantic',
+  'CAR':'Metro','CBJ':'Metro','NJ':'Metro','NYI':'Metro','NYR':'Metro','PHI':'Metro','PIT':'Metro','WSH':'Metro',
+};
 
 function computeSpread(g, weights) {
   const a = g.away_kenpom || {}, h = g.home_kenpom || {};
   const wt = weights || {};
-  const w = function (key) { return ((wt[key] && wt[key].value) || 15) / 100; };
+  const w = function (key) { return ((wt[key] && wt[key].value) || 0) / 100; };
 
   // xGF% proxy: prefer HR 5v5 score-adjusted; fall back to ESPN GF-rate
   function xgfProxy(stats) {
@@ -1010,11 +1046,11 @@ function computeSpread(g, weights) {
   const favStarter = favIsHome ? (g.home_starter || {}) : (g.away_starter || {});
   const dogStarter = favIsHome ? (g.away_starter || {}) : (g.home_starter || {});
 
-  // 1. Base — xGF% differential (0.055 goals per 1%)
+  // ── 1. Base — xGF% differential (0.055 goals per 1%) ────────────
   const xgf_diff = xgfProxy(fav) - xgfProxy(dog);
   const base = xgf_diff * 0.055;
 
-  // 2. Shot quality — HDCF% marginal signal (0.025/%)
+  // ── 2. Shot quality — HDCF% marginal signal (0.025/%) ───────────
   let shot_quality = 0;
   if (fav.hdcf_pct != null && dog.hdcf_pct != null) {
     shot_quality = (parseFloat(fav.hdcf_pct) - parseFloat(dog.hdcf_pct)) * 0.025;
@@ -1023,42 +1059,34 @@ function computeSpread(g, weights) {
     shot_quality = (fav_sh - dog_sh) * 0.010;
   }
 
-  // 3. Goalie — Tier 2 NHL API data preferred, with confidence discount
-  //    Tier 2: last-5 SV% (most predictive short-window), fall back to season
-  //    Tier 1: ESPN individual starter SV%, fall back to team SV%
-  //    Confidence discount: projected/unknown starters get 35% weight reduction
+  // ── 3. Goalie SV% — Tier 2 preferred, confidence discount ──────
   function getGoalieSV(starter) {
     const name = starter.name;
-    // Check Tier 2 NHL API cache first
     if (name && _nhlGoalieCache) {
       const nhl = _nhlGoalieCache[name];
       if (nhl) {
-        // Prefer last-5 SV%, then season SV%
-        if (nhl.sv_pct_last5 != null) return { sv: nhl.sv_pct_last5, tier: 2, source: 'last5' };
-        if (nhl.sv_pct_season != null) return { sv: nhl.sv_pct_season, tier: 2, source: 'season' };
-        if (nhl.sv_pct != null) return { sv: nhl.sv_pct, tier: 2, source: 'stats' };
+        if (nhl.sv_pct_last5 != null) return { sv: nhl.sv_pct_last5, tier: 2, source: 'last5', games: nhl.games || 0 };
+        if (nhl.sv_pct_season != null) return { sv: nhl.sv_pct_season, tier: 2, source: 'season', games: nhl.games || 0 };
+        if (nhl.sv_pct != null) return { sv: nhl.sv_pct, tier: 2, source: 'stats', games: nhl.games || 0 };
       }
-      // Try fuzzy match by last name
       if (name) {
         const last = name.split(' ').pop().toLowerCase();
         for (const [n, s] of Object.entries(_nhlGoalieCache)) {
           if (n.split(' ').pop().toLowerCase() === last) {
-            if (s.sv_pct_last5 != null) return { sv: s.sv_pct_last5, tier: 2, source: 'last5' };
-            if (s.sv_pct != null) return { sv: s.sv_pct, tier: 2, source: 'stats' };
+            if (s.sv_pct_last5 != null) return { sv: s.sv_pct_last5, tier: 2, source: 'last5', games: s.games || 0 };
+            if (s.sv_pct != null) return { sv: s.sv_pct, tier: 2, source: 'stats', games: s.games || 0 };
           }
         }
       }
     }
-    // Tier 1: ESPN individual
-    if (name && _espnGoalieStats[name]) return { sv: _espnGoalieStats[name].sv_pct, tier: 1, source: 'espn' };
-    if (starter.sv_pct != null) return { sv: starter.sv_pct, tier: 1, source: 'espn' };
-    return { sv: 0.910, tier: 0, source: 'default' };
+    if (name && _espnGoalieStats[name]) return { sv: _espnGoalieStats[name].sv_pct, tier: 1, source: 'espn', games: _espnGoalieStats[name].games || 0 };
+    if (starter.sv_pct != null) return { sv: starter.sv_pct, tier: 1, source: 'espn', games: 0 };
+    return { sv: 0.910, tier: 0, source: 'default', games: 0 };
   }
 
   const favGoalie = getGoalieSV(favStarter);
   const dogGoalie = getGoalieSV(dogStarter);
 
-  // Confidence discount: reduce goalie edge weight when starter is unconfirmed
   const favConfidence = favStarter.confidence || 'unknown';
   const dogConfidence = dogStarter.confidence || 'unknown';
   const confDiscount = (favConfidence === 'Confirmed' || favConfidence === 'confirmed') &&
@@ -1068,7 +1096,23 @@ function computeSpread(g, weights) {
   const goalie_edge = sv_diff * 28.5 * confDiscount;
   const goalieTier = Math.max(favGoalie.tier, dogGoalie.tier);
 
-  // 4. Power play edge
+  // ── 4. GSAx proxy — goals saved above expected ──────────────────
+  // True GSAx = xGA - GA. We approximate using SV% vs league avg × volume.
+  // A goalie with .925 SV% facing 30 shots/game saves ~0.45 more goals/game than .910 avg.
+  // GSAx/game: (goalie_sv - league_avg_sv) × avg_shots_against_per_game
+  const AVG_LEAGUE_SV = 0.905;
+  function gsaxPerGame(goalieData, teamStats) {
+    const sv = goalieData.sv;
+    const shotsAgPg = parseFloat(teamStats.shots_against_pg) || 28.5;
+    return (sv - AVG_LEAGUE_SV) * shotsAgPg;
+  }
+  const favTeamStats = favIsHome ? h : a;
+  const dogTeamStats = favIsHome ? a : h;
+  const fav_gsax = gsaxPerGame(favGoalie, favTeamStats);
+  const dog_gsax = gsaxPerGame(dogGoalie, dogTeamStats);
+  const gsax_edge = (fav_gsax - dog_gsax) * confDiscount; // positive = fav goalie outperforms more
+
+  // ── 5. Power play edge ──────────────────────────────────────────
   let pp_edge = 0;
   if (fav.pp_pct != null && dog.pp_pct != null) {
     const fav_pk = parseFloat(fav.pk_pct) || 80, dog_pk = parseFloat(dog.pk_pct) || 80;
@@ -1079,27 +1123,45 @@ function computeSpread(g, weights) {
     pp_edge = (fav_ppg - dog_ppg) * 0.15;
   }
 
-  // 5. Recency — rolling xGF% trend (capped ±0.25g)
+  // ── 6. Recency — rolling xGF% trend (capped ±0.25g) ────────────
   function recencyBoost(stats) {
     const season = parseFloat(stats.xgf_pct) || 50;
-    // xgf_pct_5v5 used as best available recency proxy from HR
     const recent = parseFloat(stats.xgf_pct_5v5 || stats.cf_pct) || 50;
     return Math.max(-0.25, Math.min(0.25, (recent - season) * 0.04));
   }
   const recency = recencyBoost(fav) - recencyBoost(dog);
 
-  // 6. Home ice — 0.28 goals
-  const isPlayoffs = !!(g.event && (g.event.includes('Playoff') || g.event.includes('Stanley Cup') || g.event.includes('Final')));
-  const site = (g.neutral_site || g.neutral) ? 0 : (favIsHome ? 0.28 : -0.28);
+  // ── 7. Rest advantage — days since last game ────────────────────
+  // 0 days = B2B (handled in context), 1 day = normal, 2 days = slight edge,
+  // 3+ days = meaningful advantage (+0.06g per extra day, capped at +0.15g)
+  const awayRest = parseFloat(g.away_rest_days) || 1;
+  const homeRest = parseFloat(g.home_rest_days) || 1;
+  const favRest = favIsHome ? homeRest : awayRest;
+  const dogRest = favIsHome ? awayRest : homeRest;
+  function restEdge(days) {
+    if (days <= 1) return 0; // normal or B2B (B2B handled separately)
+    return Math.min(0.15, (days - 1) * 0.06);
+  }
+  const rest_adj = restEdge(favRest) - restEdge(dogRest);
 
-  // 7. Context — B2B (home vs road differentiated), road trip depth
+  // ── 8. Context — B2B fatigue + road trip depth ──────────────────
   const away_b2b = !!(g.away_b2b), home_b2b = !!(g.home_b2b);
-  // Road B2B = 0.18g, home B2B = 0.08g
   const b2b_adj = (away_b2b ? -0.18 : 0) + (home_b2b ? 0.08 : 0);
   const road_trip_penalty = Math.max(0, ((g.away_road_trip_games || 0) - 3)) * -0.04;
   const context_adj = b2b_adj + road_trip_penalty;
 
-  // 8. PDO regression — scaled by games played remaining
+  // ── 9. Divisional compression ───────────────────────────────────
+  // Divisional games play tighter: compress the spread by ~12%, trend under
+  const awayDiv = DIVISION_MAP[g.awayAbbr] || '';
+  const homeDiv = DIVISION_MAP[g.homeAbbr] || '';
+  const isDivisional = awayDiv && homeDiv && awayDiv === homeDiv;
+  const divisional_adj = isDivisional ? -0.08 : 0; // compresses fav advantage
+
+  // ── 10. Home ice — 0.28 goals ───────────────────────────────────
+  const isPlayoffs = !!(g.event && (g.event.includes('Playoff') || g.event.includes('Stanley Cup') || g.event.includes('Final')));
+  const site = (g.neutral_site || g.neutral) ? 0 : (favIsHome ? 0.28 : -0.28);
+
+  // ── 11. PDO regression — scaled by season remaining ─────────────
   const fav_pdo = parseFloat(fav.pdo) || 100, dog_pdo = parseFloat(dog.pdo) || 100;
   const fav_games = parseFloat(fav.games) || 41, dog_games = parseFloat(dog.games) || 41;
   function pdoRegression(pdo, gamesPlayed) {
@@ -1111,18 +1173,47 @@ function computeSpread(g, weights) {
   const pdo_adj = pdoRegression(fav_pdo, fav_games) - pdoRegression(dog_pdo, dog_games);
   const pdoFlag = fav_pdo > 102 ? 'fav_high_pdo' : dog_pdo > 102 ? 'dog_high_pdo' : null;
 
-  // Weighted sum — raw precision (no rounding until display)
-  const wXG = w('xg'), wSQ = w('shotquality'), wG = w('goalie'), wPP = w('powerplay');
-  const wRec = w('recency'), wCtx = w('context');
+  // ── DORMANT COMPONENTS (start at 0 weight, post-mortem activates) ─
 
-  const raw = base * (wXG / 0.22)
-    + shot_quality * (wSQ / 0.18)
-    + goalie_edge * (wG / 0.28)
-    + pp_edge * (wPP / 0.14)
-    + recency * (wRec / 0.10)
+  // 12. Record-vs-expected regression
+  // Teams overperforming Pythagorean expectation regress
+  const fav_luck = parseFloat(fav.luck_delta) || 0;
+  const dog_luck = parseFloat(dog.luck_delta) || 0;
+  // Positive luck_delta = winning more than expected = due to regress DOWN
+  const regression_adj = -(fav_luck - dog_luck) * 0.5; // scale: 10% luck gap ≈ 0.05g
+
+  // 13. Goalie workload fatigue
+  // Goalies with 50+ starts are measurably worse late season
+  const fav_goalie_games = favGoalie.games || 0;
+  const dog_goalie_games = dogGoalie.games || 0;
+  function workloadPenalty(starts) {
+    if (starts < 45) return 0;
+    return Math.min(0.10, (starts - 45) * 0.008); // max 0.10g penalty at 57+ starts
+  }
+  const workload_adj = workloadPenalty(dog_goalie_games) - workloadPenalty(fav_goalie_games);
+
+  // 14. Special teams opportunity rate
+  // Weight PP edge by how many opportunities each team actually gets
+  const fav_ppg_vol = parseFloat(fav.pp_goals_per_game) || 0;
+  const dog_ppg_vol = parseFloat(dog.pp_goals_per_game) || 0;
+  const st_oppty_adj = (fav_ppg_vol - dog_ppg_vol) * 0.08; // marginal boost from volume
+
+  // ── Weighted sum ────────────────────────────────────────────────
+  const raw = base         * (w('xg')          / 0.20 || 0)
+    + shot_quality         * (w('shotquality')  / 0.15 || 0)
+    + goalie_edge          * (w('goalie')       / 0.22 || 0)
+    + gsax_edge            * (w('gsax')         / 0.08 || 0)
+    + pp_edge              * (w('powerplay')    / 0.12 || 0)
+    + recency              * (w('recency')      / 0.08 || 0)
+    + rest_adj             * (w('rest')         / 0.05 || 0)
+    + context_adj          * (w('context')      / 0.06 || 0)
+    + divisional_adj       * (w('divisional')   / 0.04 || 0)
     + site
     + pdo_adj
-    + context_adj * (wCtx / 0.08);
+    // Dormant — only contribute when weight > 0
+    + (w('regression') > 0 ? regression_adj * (w('regression') / 0.05) : 0)
+    + (w('workload')   > 0 ? workload_adj   * (w('workload')   / 0.05) : 0)
+    + (w('st_oppty')   > 0 ? st_oppty_adj   * (w('st_oppty')   / 0.05) : 0);
 
   // Parse market puck line
   let mktNum = null, mktFavName = null;
@@ -1130,7 +1221,6 @@ function computeSpread(g, weights) {
   const mktMatch = mkt.match(/^([A-Z]+)\s+([-+]?\d+\.?\d*)/i);
   if (mktMatch) { mktFavName = mktMatch[1].toUpperCase(); mktNum = parseFloat(mktMatch[2]); }
 
-  // Display rounding only — edge uses raw value
   const modelDisplay = Math.round(raw * 2) / 2;
   const favName = favIsHome ? g.home : g.away;
   function teamAbbr(name, abbr) {
@@ -1140,50 +1230,61 @@ function computeSpread(g, weights) {
   const favAbbr = teamAbbr(favName, favIsHome ? (g.homeAbbr || g.home_abbrev) : (g.awayAbbr || g.away_abbrev));
   const modelSpread = favAbbr + ' -' + Math.abs(modelDisplay).toFixed(1);
 
-  // Edge: raw precision difference between model and market
   let edge = 0;
   if (mktNum !== null) edge = Math.abs(raw) - Math.abs(mktNum);
 
   const ml_lean = raw > 0.05 ? 'FAV' : raw < -0.05 ? 'DOG' : 'EVEN';
   const ml_confidence = Math.abs(raw) >= 0.3 ? 'HIGH' : Math.abs(raw) >= 0.15 ? 'MED' : 'LOW';
 
-  // ─── TOTALS MODEL ──────────────────────────────────────────────
-  // Project total goals: sum of expected scoring rates, adjusted for goalies and pace
+  // ── TOTALS MODEL — pace-adjusted with goalie suppression ────────
   const awayGF = parseFloat(a.gf_per_game) || 3.0;
   const awayGA = parseFloat(a.ga_per_game) || 3.0;
   const homeGF = parseFloat(h.gf_per_game) || 3.0;
   const homeGA = parseFloat(h.ga_per_game) || 3.0;
-  // Crossover: away offense vs home defense, and vice versa
   const awayExpected = (awayGF + homeGA) / 2;
   const homeExpected = (homeGF + awayGA) / 2;
-  // Goalie suppression: better goalies suppress scoring
-  const avgLeagueSV = 0.905;
-  const favSVSuppression = (favGoalie.sv - avgLeagueSV) * 28.5; // negative = suppresses goals against fav
-  const dogSVSuppression = (dogGoalie.sv - avgLeagueSV) * 28.5;
-  const projectedTotal = awayExpected + homeExpected - favSVSuppression - dogSVSuppression;
+  // Pace adjustment: if both teams are high-shot-volume, expect more goals
+  const leagueAvgPace = 58; // ~58 total shots per game league average
+  const gamePace = ((parseFloat(a.shots_pace) || leagueAvgPace) + (parseFloat(h.shots_pace) || leagueAvgPace)) / 2;
+  const paceMultiplier = gamePace / leagueAvgPace;
+  // Goalie suppression
+  const favSVSuppression = (favGoalie.sv - AVG_LEAGUE_SV) * 28.5;
+  const dogSVSuppression = (dogGoalie.sv - AVG_LEAGUE_SV) * 28.5;
+  // Divisional games trend under by ~0.25 goals
+  const divisionalTotalAdj = isDivisional ? -0.25 : 0;
+  const projectedTotal = (awayExpected + homeExpected) * paceMultiplier - favSVSuppression - dogSVSuppression + divisionalTotalAdj;
   const mktTotal = parseFloat(g.market_total) || null;
   const totalsEdge = mktTotal ? projectedTotal - mktTotal : 0;
+  const totalsThresh = parseFloat((wt._totalsThreshold) || 0.40);
   const totalsLean = totalsEdge > 0.2 ? 'OVER' : totalsEdge < -0.2 ? 'UNDER' : 'PASS';
 
   return {
     favName, favIsHome, modelNum: raw, modelSpread, favAbbr,
     mktNum, mktFavName, edge: Math.round(edge * 1000) / 1000,
     ml_lean, ml_confidence, pdoFlag, goalieTier,
-    goalieConfDiscount: confDiscount,
+    goalieConfDiscount: confDiscount, isDivisional,
     projectedTotal: Math.round(projectedTotal * 10) / 10,
     totalsEdge: Math.round(totalsEdge * 100) / 100,
-    totalsLean,
+    totalsLean, paceMultiplier: Math.round(paceMultiplier * 100) / 100,
     components: {
       base: +base.toFixed(3), shot_quality: +shot_quality.toFixed(3),
-      goalie: +goalie_edge.toFixed(3), powerplay: +pp_edge.toFixed(3),
-      recency: +recency.toFixed(3), site: +site.toFixed(3), context: +context_adj.toFixed(3),
+      goalie: +goalie_edge.toFixed(3), gsax: +gsax_edge.toFixed(3),
+      powerplay: +pp_edge.toFixed(3), recency: +recency.toFixed(3),
+      rest: +rest_adj.toFixed(3), context: +context_adj.toFixed(3),
+      divisional: +divisional_adj.toFixed(3),
+      regression: +regression_adj.toFixed(3), workload: +workload_adj.toFixed(3),
+      st_oppty: +st_oppty_adj.toFixed(3),
+      site: +site.toFixed(3),
     },
     recencyDetail: {
       fav_xgf: +(parseFloat(fav.xgf_pct) || 50).toFixed(1),
       dog_xgf: +(parseFloat(dog.xgf_pct) || 50).toFixed(1),
       fav_sv: +(favGoalie.sv * 100).toFixed(1), dog_sv: +(dogGoalie.sv * 100).toFixed(1),
       fav_sv_source: favGoalie.source, dog_sv_source: dogGoalie.source,
+      fav_gsax: +fav_gsax.toFixed(2), dog_gsax: +dog_gsax.toFixed(2),
       fav_pdo: +fav_pdo.toFixed(1), dog_pdo: +dog_pdo.toFixed(1),
+      fav_luck: fav_luck ? +(fav_luck * 100).toFixed(1) : null,
+      dog_luck: dog_luck ? +(dog_luck * 100).toFixed(1) : null,
       fav_starter: favStarter.name || null, dog_starter: dogStarter.name || null,
       fav_starter_conf: favStarter.confidence || null, dog_starter_conf: dogStarter.confidence || null,
     },
@@ -1392,17 +1493,23 @@ async function formulaRun(cfg, today, slateGames) {
     const factors = [];
     const compAbs = {
       xG: Math.abs(comps.base || 0), 'Shot Quality': Math.abs(comps.shot_quality || 0),
-      Goalie: Math.abs(comps.goalie || 0), 'Power Play': Math.abs(comps.powerplay || 0),
-      Recency: Math.abs(comps.recency || 0), 'Home Ice': Math.abs(comps.site || 0),
+      Goalie: Math.abs(comps.goalie || 0), GSAx: Math.abs(comps.gsax || 0),
+      'Power Play': Math.abs(comps.powerplay || 0), Recency: Math.abs(comps.recency || 0),
+      Rest: Math.abs(comps.rest || 0), 'Home Ice': Math.abs(comps.site || 0),
     };
     const dominant = Object.keys(compAbs).reduce(function (a, b) { return compAbs[a] > compAbs[b] ? a : b; });
     factors.push('Driver: ' + dominant);
 
     if (c.recencyDetail && c.recencyDetail.fav_starter) {
-      factors.push(c.recencyDetail.fav_starter + ' (' + c.recencyDetail.fav_sv + '% ' + c.recencyDetail.fav_sv_source + ') vs ' + (c.recencyDetail.dog_starter || '?') + ' (' + c.recencyDetail.dog_sv + '%)');
+      factors.push(c.recencyDetail.fav_starter + ' (' + c.recencyDetail.fav_sv + '% ' + c.recencyDetail.fav_sv_source + ' GSAx:' + c.recencyDetail.fav_gsax + ') vs ' + (c.recencyDetail.dog_starter || '?') + ' (' + c.recencyDetail.dog_sv + '% GSAx:' + c.recencyDetail.dog_gsax + ')');
     }
     if (c.pdoFlag) factors.push('⚠ PDO ' + (c.pdoFlag === 'fav_high_pdo' ? 'fav elevated' : 'dog elevated'));
-    if (c.totalsLean !== 'PASS') factors.push('Totals: ' + c.totalsLean + ' ' + c.projectedTotal + ' (mkt ' + (g.market_total || '?') + ')');
+    if (c.isDivisional) factors.push('📍 Divisional — expect tight');
+    if (Math.abs(comps.rest || 0) >= 0.04) factors.push('😴 Rest edge: ' + (comps.rest > 0 ? 'fav rested' : 'dog rested'));
+    if (c.recencyDetail.fav_luck != null && Math.abs(c.recencyDetail.fav_luck) > 3) {
+      factors.push('🎲 Luck: fav ' + (c.recencyDetail.fav_luck > 0 ? '+' : '') + c.recencyDetail.fav_luck + '% vs expected');
+    }
+    if (c.totalsLean !== 'PASS') factors.push('Totals: ' + c.totalsLean + ' ' + c.projectedTotal + ' (mkt ' + (g.market_total || '?') + ') pace:' + c.paceMultiplier);
 
     const edgeDir = verdict === 'EV_FAV' ? 'lay fav' : verdict === 'EV_DOG' ? 'take dog' : 'pass';
     const analysis = dominant + ' drives ' + Math.abs(comps[dominant.toLowerCase().replace(' ', '_')] || comps.base || 0).toFixed(2) + 'g — ' + edgeDir + ' at ' + c.edge.toFixed(2) + 'g edge.';
@@ -1416,7 +1523,9 @@ async function formulaRun(cfg, today, slateGames) {
       model_spread: c.modelSpread, ml_lean: c.ml_lean, ml_confidence: c.ml_confidence,
       pdo_flag: c.pdoFlag, goalie_tier: c.goalieTier,
       goalie_conf_discount: c.goalieConfDiscount,
+      is_divisional: c.isDivisional,
       projected_total: c.projectedTotal, totals_edge: c.totalsEdge, totals_lean: c.totalsLean,
+      pace_multiplier: c.paceMultiplier,
       edge_pts: Math.abs(c.edge), verdict: verdict,
       play: verdict !== 'PASS'
         ? (verdict === 'EV_DOG' ? (c.favIsHome ? g.away : g.home) + ' +1.5' : c.favAbbr + ' -1.5')
@@ -1434,6 +1543,10 @@ async function formulaRun(cfg, today, slateGames) {
         away_pk: ak.pk_pct, home_pk: hk.pk_pct,
         away_pdo: ak.pdo, home_pdo: hk.pdo,
         away_cf: ak.cf_pct, home_cf: hk.cf_pct,
+        away_luck: ak.luck_delta != null ? +(ak.luck_delta * 100).toFixed(1) : null,
+        home_luck: hk.luck_delta != null ? +(hk.luck_delta * 100).toFixed(1) : null,
+        away_pace: ak.shots_pace ? +ak.shots_pace.toFixed(0) : null,
+        home_pace: hk.shots_pace ? +hk.shots_pace.toFixed(0) : null,
         using_espn_proxy: ak.xgf_pct == null,
       },
     };
@@ -1522,6 +1635,10 @@ function renderGames(games, picks, cfg) {
       ? '<span class="tag ' + (g.totals_lean === 'OVER' ? 'tag-h' : 'tag-c') + '" style="font-size:9px">' + g.totals_lean + ' ' + g.projected_total + ' (mkt ' + (g.market_total || '?') + ')</span>' : '';
     const goalieTierBadge = '<span class="tag ' + (g.goalie_tier === 2 ? 'tag-c' : 'tag-n') + '" style="font-size:9px">🥅 T' + (g.goalie_tier || 1) + '</span>';
 
+    const divisionalBadge = g.is_divisional ? '<span class="tag tag-c" style="font-size:9px">📍 DIV</span>' : '';
+    const paceBadge = g.pace_multiplier && g.pace_multiplier !== 1.00
+      ? '<span class="tag ' + (g.pace_multiplier > 1.03 ? 'tag-h' : g.pace_multiplier < 0.97 ? 'tag-c' : 'tag-n') + '" style="font-size:9px">Pace ' + g.pace_multiplier + 'x</span>' : '';
+
     const starterBadge = function (starter) {
       if (!starter || !starter.name) return '<span style="font-size:9px;font-family:var(--mono);color:var(--text3)">—</span>';
       const confColor = { confirmed: 'var(--green)', Confirmed: 'var(--green)', expected: 'var(--amber)', unconfirmed: 'var(--text3)' }[starter.confidence] || 'var(--text3)';
@@ -1530,9 +1647,10 @@ function renderGames(games, picks, cfg) {
         '<span style="font-size:9px;font-family:var(--mono);color:var(--text3);margin-left:4px">(' + (starter.confidence || '?') + ')</span>';
     };
 
-    const factors = (g.key_factors || []).slice(0, 4).map(function (f) { return '<span class="tag tag-c">' + f + '</span>'; }).join('');
+    const factors = (g.key_factors || []).slice(0, 5).map(function (f) { return '<span class="tag tag-c">' + f + '</span>'; }).join('');
     const svFmt = function (v) { return v ? parseFloat(v).toFixed(3) : '—'; };
     const pctFmt = function (v) { return v ? parseFloat(v).toFixed(1) + '%' : '—'; };
+    const luckFmt = function (v) { return v != null ? (v > 0 ? '+' : '') + v + '%' : '—'; };
 
     html += '<div class="game-card ' + vc + (isPick ? ' is-pick' : '') + '">' +
       '<div class="game-top">' +
@@ -1558,10 +1676,10 @@ function renderGames(games, picks, cfg) {
       '<div class="stat-cell"><div class="stat-name">PP%</div><div class="stat-val"><span class="stat-adv ' + aPP + '">' + pctFmt(st.away_pp) + '</span>/<span class="stat-adv ' + hPP + '">' + pctFmt(st.home_pp) + '</span></div></div>' +
       '<div class="stat-cell"><div class="stat-name">PK%</div><div class="stat-val"><span class="stat-adv ' + aPK + '">' + pctFmt(st.away_pk) + '</span>/<span class="stat-adv ' + hPK + '">' + pctFmt(st.home_pk) + '</span></div></div>' +
       '<div class="stat-cell"><div class="stat-name">PDO</div><div class="stat-val">' + (st.away_pdo || '—') + '/' + (st.home_pdo || '—') + '</div></div>' +
-      '<div class="stat-cell"><div class="stat-name">CF% (5v5)</div><div class="stat-val">' + pctFmt(st.away_cf) + '/' + pctFmt(st.home_cf) + '</div></div>' +
+      '<div class="stat-cell"><div class="stat-name">Luck Δ</div><div class="stat-val">' + luckFmt(st.away_luck) + '/' + luckFmt(st.home_luck) + '</div></div>' +
       '<div class="stat-cell"><div class="stat-name">Proj Total</div><div class="stat-val" style="color:' + (g.totals_lean === 'OVER' ? 'var(--amber)' : g.totals_lean === 'UNDER' ? 'var(--blue)' : 'var(--text)') + '">' + (g.projected_total || '—') + '</div></div>' +
       '</div>' +
-      ((factors || mlBadge || pdoBadge || totalsBadge) ? '<div class="tags" style="margin-bottom:8px">' + factors + goalieTierBadge + mlBadge + totalsBadge + pdoBadge + '</div>' : '') +
+      ((factors || mlBadge || pdoBadge || totalsBadge || divisionalBadge || paceBadge) ? '<div class="tags" style="margin-bottom:8px">' + factors + goalieTierBadge + divisionalBadge + mlBadge + totalsBadge + paceBadge + pdoBadge + '</div>' : '') +
       (g.analysis ? '<div class="analysis-block">' + g.analysis + '</div>' : '') +
       '</div>';
   }
@@ -1758,7 +1876,7 @@ async function runPostmortem() {
         actual_margin: g.actual_margin, model_error: modelError, verdict: g.verdict, ats_result: g.ats_result, components: g.components || {} };
     }).filter(function (e) { return e.model_error !== null; });
 
-    const compKeys = ['base', 'shot_quality', 'goalie', 'powerplay', 'recency', 'site', 'context'];
+    const compKeys = ['base', 'shot_quality', 'goalie', 'gsax', 'powerplay', 'recency', 'rest', 'site', 'context', 'divisional', 'regression', 'workload', 'st_oppty'];
     const compStats = {};
     compKeys.forEach(function (k) {
       const vals = errors.filter(function (e) { return e.components[k] != null; });
